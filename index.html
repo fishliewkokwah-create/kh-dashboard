@@ -135,14 +135,31 @@ function toast(msg){
 
 async function sendCmd(obj){
   try{
-    // GET with query params -- NOT POST. Apps Script's /exec always redirects
-    // internally, and browsers convert POST->GET + drop the body when
-    // following that redirect, so a POST body never actually arrives.
-    // Sending as GET query params sidesteps the problem entirely.
+    // GET with query params, mode:'no-cors' -- the command reaches and runs
+    // on the server regardless; we deliberately don't try to read a response
+    // back (Apps Script's redirect makes that unreliable cross-origin), so
+    // no-cors avoids a spurious CORS error for a request that already worked.
     const params = new URLSearchParams(Object.assign({action:'setcmd', device:DEVICE}, obj));
-    await fetch(GSCRIPT_URL + '?' + params.toString());
+    await fetch(GSCRIPT_URL + '?' + params.toString(), {mode:'no-cors'});
     toast('Command queued — device picks it up within 30 s');
   }catch(e){ toast('Send failed — check URL / connection'); }
+}
+
+// JSONP loader -- bypasses CORS entirely via a <script> tag instead of fetch,
+// since Apps Script's redirect doesn't reliably send CORS headers a fetch()
+// can read, but a script tag has no such restriction.
+let jsonpCounter = 0;
+function jsonpRequest(url){
+  return new Promise((resolve, reject) => {
+    const cbName = 'khCb_' + (jsonpCounter++);
+    const script = document.createElement('script');
+    const cleanup = () => { delete window[cbName]; script.remove(); };
+    window[cbName] = (data) => { cleanup(); resolve(data); };
+    script.onerror = () => { cleanup(); reject(new Error('JSONP load failed')); };
+    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
+    document.body.appendChild(script);
+    setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, 10000);
+  });
 }
 
 function pct(kh){ return Math.max(0, Math.min(100, (kh-KH_MIN)/(KH_MAX-KH_MIN)*100)); }
@@ -200,8 +217,8 @@ function render(rows){
 async function load(){
   if(GSCRIPT_URL.startsWith('PASTE')){ render(demoData()); return; }
   try{
-    const r = await fetch(GSCRIPT_URL + '?action=history&n=200');
-    render(await r.json());
+    const data = await jsonpRequest(GSCRIPT_URL + '?action=history&n=200');
+    render(data);
   }catch(e){ toast('Fetch failed — showing nothing new'); }
 }
 
