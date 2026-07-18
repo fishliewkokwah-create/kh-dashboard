@@ -135,15 +135,12 @@ function toast(msg){
 
 async function sendCmd(obj){
   try{
-    // mode:'no-cors' is required here -- Apps Script's /exec endpoint always
-    // internally redirects, and the browser blocks reading that redirected
-    // response cross-origin (CORS). The command still reaches the script and
-    // runs correctly; we just can't read a confirmation back, so we don't try.
-    await fetch(GSCRIPT_URL, {
-      method:'POST',
-      mode:'no-cors',
-      body: JSON.stringify(Object.assign({action:'setcmd', device:DEVICE}, obj))
-    });
+    // GET with query params -- NOT POST. Apps Script's /exec always redirects
+    // internally, and browsers convert POST->GET + drop the body when
+    // following that redirect, so a POST body never actually arrives.
+    // Sending as GET query params sidesteps the problem entirely.
+    const params = new URLSearchParams(Object.assign({action:'setcmd', device:DEVICE}, obj));
+    await fetch(GSCRIPT_URL + '?' + params.toString());
     toast('Command queued — device picks it up within 30 s');
   }catch(e){ toast('Send failed — check URL / connection'); }
 }
