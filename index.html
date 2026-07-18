@@ -135,12 +135,11 @@ function toast(msg){
 
 async function sendCmd(obj){
   try{
-    // GET with query params, mode:'no-cors' -- the command reaches and runs
-    // on the server regardless; we deliberately don't try to read a response
-    // back (Apps Script's redirect makes that unreliable cross-origin), so
-    // no-cors avoids a spurious CORS error for a request that already worked.
-    const params = new URLSearchParams(Object.assign({action:'setcmd', device:DEVICE}, obj));
-    await fetch(GSCRIPT_URL + '?' + params.toString(), {mode:'no-cors'});
+    // GET with query params, mode:'no-cors', plus a cache-busting timestamp --
+    // without the timestamp, browsers can silently serve a cached response
+    // for an identical GET instead of actually contacting the server again.
+    const params = new URLSearchParams(Object.assign({action:'setcmd', device:DEVICE, _:Date.now()}, obj));
+    await fetch(GSCRIPT_URL + '?' + params.toString(), {mode:'no-cors', cache:'no-store'});
     toast('Command queued — device picks it up within 30 s');
   }catch(e){ toast('Send failed — check URL / connection'); }
 }
