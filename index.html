@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+E html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -135,11 +135,12 @@ function toast(msg){
 
 async function sendCmd(obj){
   try{
-    // GET with query params, mode:'no-cors', plus a cache-busting timestamp --
-    // without the timestamp, browsers can silently serve a cached response
-    // for an identical GET instead of actually contacting the server again.
+    // Switched from fetch() to JSONP (same technique as history load) --
+    // on this device, fetch() calls to the Apps Script domain weren't
+    // reaching the server at all (no matching Execution ever appeared),
+    // while <script>-tag requests (JSONP) reliably do.
     const params = new URLSearchParams(Object.assign({action:'setcmd', device:DEVICE, _:Date.now()}, obj));
-    await fetch(GSCRIPT_URL + '?' + params.toString(), {mode:'no-cors', cache:'no-store'});
+    await jsonpRequest(GSCRIPT_URL + '?' + params.toString());
     toast('Command queued — device picks it up within 30 s');
   }catch(e){ toast('Send failed — check URL / connection'); }
 }
