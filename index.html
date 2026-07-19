@@ -1,4 +1,4 @@
-E html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -173,7 +173,7 @@ function render(rows){
   document.getElementById('mTarget').textContent = tgt.toFixed(1);
   document.getElementById('mDosed').textContent = Number(last.dosed24h).toFixed(0);
   document.getElementById('mDose').textContent = Number(last.dose).toFixed(1);
-  document.getElementById('mStatus').textContent = last.status;
+  document.getElementById('mStatus').textContent = last.status + (last.source==='manual' ? ' (manual dose)' : '');
   document.getElementById('lastSeen').textContent = new Date(last.t).toLocaleString();
   document.getElementById('inTarget').value = tgt;
 
@@ -194,6 +194,7 @@ function render(rows){
   const khs   = rows.map(r=>Number(r.kh));
   const tgts  = rows.map(r=>Number(r.target));
   const doses = rows.map(r=>Number(r.dose));
+  const doseColors = rows.map(r=>(r.source==='manual') ? 'rgba(255,107,94,.7)' : 'rgba(245,185,95,.55)');
 
   if(chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), {
@@ -202,7 +203,7 @@ function render(rows){
         {type:'line', label:'KH (dKH)', data:khs, borderColor:'#3FD0C9', backgroundColor:'rgba(63,208,201,.12)',
          tension:.3, fill:true, pointRadius:2, yAxisID:'y'},
         {type:'line', label:'Target', data:tgts, borderColor:'#7A96A3', borderDash:[6,4], pointRadius:0, yAxisID:'y'},
-        {type:'bar', label:'Dose (mL)', data:doses, backgroundColor:'rgba(245,185,95,.55)', yAxisID:'y2'}
+        {type:'bar', label:'Dose (mL)', data:doses, backgroundColor:doseColors, yAxisID:'y2'}
       ]},
     options:{ maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       plugins:{legend:{labels:{color:'#7A96A3',font:{family:'IBM Plex Mono',size:10}}}},
