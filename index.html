@@ -36,7 +36,7 @@
   .kh-state{font-family:'IBM Plex Mono';font-size:.72rem;margin-top:8px}
   .ok{color:var(--aqua)} .low{color:var(--amber)} .fault{color:var(--coral)}
   .meta{margin-top:16px;font-size:.78rem;color:var(--slate);line-height:1.7}
-  .meta b{color:var(--sand);font-family:'IBM Plex Mono')}
+  .meta b{color:var(--sand);font-family:'IBM Plex Mono'}
 
   /* ---- chart ---- */
   .chart-panel{display:flex;flex-direction:column}
@@ -79,7 +79,9 @@
           target <b id="mTarget">—</b> dKH<br>
           dosed 24 h <b id="mDosed">—</b> mL<br>
           last dose <b id="mDose">—</b> mL<br>
-          status <b id="mStatus">—</b>
+          status <b id="mStatus">—</b><br>
+          pH cal (7.00) <b id="mPhV7">—</b> V<br>
+          pH cal (4.00) <b id="mPhV4">—</b> V
         </div>
       </div>
     </div>
@@ -180,6 +182,8 @@ function render(rows){
   document.getElementById('mDosed').textContent = Number(last.dosed24h).toFixed(0);
   document.getElementById('mDose').textContent = Number(last.dose).toFixed(1);
   document.getElementById('mStatus').textContent = last.status + (last.source==='manual' ? ' (manual dose)' : '');
+  document.getElementById('mPhV7').textContent = last.phV7 ? Number(last.phV7).toFixed(3) : '—';
+  document.getElementById('mPhV4').textContent = last.phV4 ? Number(last.phV4).toFixed(3) : '—';
   document.getElementById('lastSeen').textContent = new Date(last.t).toLocaleString();
   document.getElementById('inTarget').value = tgt;
 
