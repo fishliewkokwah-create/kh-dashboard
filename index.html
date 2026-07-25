@@ -113,6 +113,12 @@
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Forces an immediate KH test on next poll (&le;30 s).</div>
       <button onclick="sendCmd({test_now:true})">Test now</button>
     </div>
+    <div class="panel ctl">
+      <label>pH probe calibration</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Dip probe in buffer solution first, wait for it to settle, then tap the matching button. Takes ~30s, saved automatically.</div>
+      <button onclick="sendCmd({cal_ph7:true})">Calibrate @ pH 7.00</button>
+      <button onclick="sendCmd({cal_ph4:true})">Calibrate @ pH 4.00</button>
+    </div>
   </div>
 </div>
 
