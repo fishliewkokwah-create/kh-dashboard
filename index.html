@@ -135,6 +135,20 @@
       <button onclick="sendCmd({cal_ph7:true})">Calibrate @ pH 7.00</button>
       <button onclick="sendCmd({cal_ph4:true})">Calibrate @ pH 4.00</button>
     </div>
+    <div class="panel ctl">
+      <label>KH math calibration (monthly)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        After a test finishes, test the same water with your manual kit (Salifert/Hanna). Enter its dKH result and the pH this unit read (shown below) into the two fields, then save.
+      </div>
+      <label for="inKhCalRef">Manual kit result (dKH)</label>
+      <input id="inKhCalRef" type="number" step="0.01" min="3" max="15" placeholder="e.g. 8.20">
+      <label for="inPhCalRef" style="margin-top:8px">This unit's pH (from last test)</label>
+      <input id="inPhCalRef" type="number" step="0.001" min="7" max="9" placeholder="e.g. 8.160">
+      <button onclick="sendCmd({kh_cal_ref:+inKhCalRef.value, ph_cal_ref:+inPhCalRef.value})">Save KH calibration</button>
+      <div style="font-size:.72rem;color:var(--slate);margin-top:8px">
+        Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -198,6 +212,8 @@ function render(rows){
   document.getElementById('mStatus').textContent = last.status + (last.source==='manual' ? ' (manual dose)' : '');
   document.getElementById('mPhV7').textContent = last.phV7 ? Number(last.phV7).toFixed(3) : '—';
   document.getElementById('mPhV4').textContent = last.phV4 ? Number(last.phV4).toFixed(3) : '—';
+  document.getElementById('mKhCalRef').textContent = last.khCalRef ? Number(last.khCalRef).toFixed(2) : '—';
+  document.getElementById('mPhCalRef').textContent = last.phCalRef ? Number(last.phCalRef).toFixed(3) : '—';
   document.getElementById('lastSeen').textContent = new Date(last.t).toLocaleString();
   document.getElementById('inTarget').value = tgt;
 
