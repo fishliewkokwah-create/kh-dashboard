@@ -150,6 +150,11 @@
         Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>
       </div>
     </div>
+    <div class="panel ctl">
+      <label>WiFi network</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Switching WiFi networks (e.g. new router)? This restarts the device into setup mode -- connect a phone to the "KH-Reactor-Setup" WiFi it broadcasts to enter new details.</div>
+      <button class="warn" onclick="if(confirm('This disconnects the device from WiFi immediately. Continue?')) sendCmd({wifi_reset:true})">Reset WiFi settings</button>
+    </div>
   </div>
 </div>
 
