@@ -1,319 +1,162 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KH Reactor — Reef Alkalinity Control</title>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<style>
-  :root{
-    --deep:#081A22; --panel:#0D2530; --line:#16394A;
-    --aqua:#3FD0C9; --aqua-dim:#1E7A76; --coral:#FF6B5E;
-    --sand:#E8E3D5; --slate:#7A96A3; --amber:#F5B95F;
+/**
+ * ============================================================
+ *  KH AUTO CHECKER - Google Apps Script backend
+ *  - Stores all readings in a Google Sheet (lives in your Drive)
+ *  - Relays commands from dashboard to ESP32 (polling model)
+ *
+ *  SETUP:
+ *  1. drive.google.com -> New -> Google Sheets -> name it "KH_Log"
+ *  2. Rename first tab to "log". Add header row:
+ *     timestamp | device | kh | target | dose_ml | dosed_24h | status | source | ph_v7 | ph_v4 | kh_cal_ref | ph_cal_ref | eq_ph | temp_c | humidity
+ *  3. Add second tab named "cmd" with header row:
+ *     device | test_now | kh_target | interval_min | manual_dose_ml | consumed | cal_ph7 | cal_ph4 | kh_cal_ref | ph_cal_ref | wifi_reset
+ *  3b. Add a third tab named "status" with header row:
+ *     device | phase | live_ph | updated_at
+ *  4. Extensions -> Apps Script -> paste this file -> save
+ *  5. Deploy -> New deployment -> Web app
+ *     - Execute as: Me
+ *     - Access: Anyone
+ *  6. Copy the /exec URL into the ESP32 firmware + dashboard HTML
+ * ============================================================
+ */
+
+const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
+
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  if (data.action === "log") {
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName("log");
+    sh.appendRow([new Date(), data.device, data.kh, data.target,
+                  data.dose_ml, data.dosed_24h, data.status, data.source || "scheduled",
+                  data.ph_v7 || "", data.ph_v4 || "", data.kh_cal_ref || "", data.ph_cal_ref || "",
+                  data.eq_ph || "", data.temp_c || "", data.humidity || ""]);
+    return ContentService.createTextOutput("ok");
   }
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{background:var(--deep);color:var(--sand);font-family:'IBM Plex Sans',sans-serif;min-height:100vh}
-  header{display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:1px solid var(--line)}
-  header h1{font-family:'Chakra Petch';font-size:1.05rem;letter-spacing:.14em;text-transform:uppercase;color:var(--aqua)}
-  header h1 span{color:var(--slate);font-weight:400}
-  .conn{font-family:'IBM Plex Mono';font-size:.72rem;color:var(--slate)}
-  .conn b{color:var(--aqua)}
-  .grid{display:grid;grid-template-columns:290px 1fr;gap:14px;padding:14px 22px;max-width:1200px;margin:0 auto}
-  @media(max-width:820px){.grid{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
-  .panel h2{font-family:'Chakra Petch';font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--slate);margin-bottom:14px}
-
-  /* ---- burette signature ---- */
-  .burette-wrap{display:flex;gap:18px;align-items:stretch}
-  .burette{position:relative;width:56px;height:300px;border:1px solid var(--line);border-radius:28px;overflow:hidden;background:#06141B;flex-shrink:0}
-  .burette .fill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,var(--aqua),var(--aqua-dim));transition:height 1s ease}
-  .burette .band{position:absolute;left:0;right:0;background:rgba(63,208,201,.14);border-top:1px dashed var(--aqua-dim);border-bottom:1px dashed var(--aqua-dim)}
-  .burette .tick{position:absolute;right:4px;font-family:'IBM Plex Mono';font-size:.58rem;color:var(--slate)}
-  .kh-read{display:flex;flex-direction:column;justify-content:center}
-  .kh-val{font-family:'Chakra Petch';font-size:3.6rem;font-weight:700;line-height:1;color:var(--sand)}
-  .kh-val small{font-size:1.1rem;color:var(--slate);font-weight:400}
-  .kh-state{font-family:'IBM Plex Mono';font-size:.72rem;margin-top:8px}
-  .ok{color:var(--aqua)} .low{color:var(--amber)} .fault{color:var(--coral)}
-  .meta{margin-top:16px;font-size:.78rem;color:var(--slate);line-height:1.7}
-  .meta b{color:var(--sand);font-family:'IBM Plex Mono'}
-
-  /* ---- chart ---- */
-  .chart-panel{display:flex;flex-direction:column}
-  .chart-box{flex:1;min-height:280px;position:relative}
-
-  /* ---- controls ---- */
-  .controls{grid-column:1 / -1;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
-  .ctl label{display:block;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);margin-bottom:6px}
-  .ctl input{width:100%;background:#06141B;border:1px solid var(--line);border-radius:6px;color:var(--sand);
-             font-family:'IBM Plex Mono';font-size:.95rem;padding:9px 10px}
-  .ctl input:focus{outline:2px solid var(--aqua-dim)}
-  button{font-family:'Chakra Petch';letter-spacing:.08em;text-transform:uppercase;font-size:.74rem;
-         background:var(--aqua-dim);color:var(--sand);border:0;border-radius:6px;padding:11px 14px;cursor:pointer;width:100%;margin-top:8px}
-  button:hover{background:var(--aqua);color:var(--deep)}
-  button.warn{background:transparent;border:1px solid var(--coral);color:var(--coral)}
-  button.warn:hover{background:var(--coral);color:var(--deep)}
-  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel);
-         border:1px solid var(--aqua-dim);border-radius:8px;padding:10px 18px;font-size:.8rem;display:none}
-</style>
-</head>
-<body>
-<header>
-  <h1>KH Reactor <span>/ device KH-01</span></h1>
-  <div class="conn">last log <b id="lastSeen">—</b></div>
-</header>
-
-<div style="padding:0 22px;max-width:1200px;margin:0 auto">
-  <div class="panel" id="liveStatusPanel" style="margin-top:14px;display:none">
-    <h2>Live Test Status</h2>
-    <div style="display:flex;align-items:center;gap:14px">
-      <div id="liveSpinner" style="width:14px;height:14px;border-radius:50%;background:var(--aqua);animation:pulse 1.2s infinite"></div>
-      <div>
-        <div id="livePhase" style="font-family:'Chakra Petch';font-size:1rem;color:var(--sand)">—</div>
-        <div id="livePH" style="font-size:.78rem;color:var(--slate)">—</div>
-      </div>
-    </div>
-  </div>
-</div>
-<style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}</style>
-
-<div class="grid">
-  <!-- current reading -->
-  <div class="panel">
-    <h2>Current Alkalinity</h2>
-    <div class="burette-wrap">
-      <div class="burette" id="burette">
-        <div class="band" id="band"></div>
-        <div class="fill" id="fill" style="height:0%"></div>
-      </div>
-      <div class="kh-read">
-        <div class="kh-val"><span id="khNow">—</span><small> dKH</small></div>
-        <div class="kh-state" id="khState">waiting for data</div>
-        <div class="meta">
-          target <b id="mTarget">—</b> dKH<br>
-          dosed 24 h <b id="mDosed">—</b> mL<br>
-          last dose <b id="mDose">—</b> mL<br>
-          status <b id="mStatus">—</b><br>
-          pH cal (7.00) <b id="mPhV7">—</b> V<br>
-          pH cal (4.00) <b id="mPhV4">—</b> V
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- trend -->
-  <div class="panel chart-panel">
-    <h2>KH Trend &amp; Dosing</h2>
-    <div class="chart-box"><canvas id="chart"></canvas></div>
-  </div>
-
-  <!-- controls -->
-  <div class="controls">
-    <div class="panel ctl">
-      <label for="inTarget">KH target (dKH)</label>
-      <input id="inTarget" type="number" step="0.1" min="6" max="12" value="8.5">
-      <button onclick="sendCmd({kh_target:+inTarget.value})">Set target</button>
-    </div>
-    <div class="panel ctl">
-      <label for="inInterval">Test interval (min)</label>
-      <input id="inInterval" type="number" step="30" min="60" max="1440" value="240">
-      <button onclick="sendCmd({interval_min:+inInterval.value})">Set interval</button>
-    </div>
-    <div class="panel ctl">
-      <label for="inDose">Manual dose (mL)</label>
-      <input id="inDose" type="number" step="1" min="1" max="40" value="10">
-      <button class="warn" onclick="sendCmd({manual_dose_ml:+inDose.value})">Dose now</button>
-    </div>
-    <div class="panel ctl">
-      <label>Run titration</label>
-      <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Forces an immediate KH test on next poll (&le;30 s).</div>
-      <button onclick="sendCmd({test_now:true})">Test now</button>
-    </div>
-    <div class="panel ctl">
-      <label>pH probe calibration</label>
-      <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Dip probe in buffer solution first, wait for it to settle, then tap the matching button. Takes ~30s, saved automatically.</div>
-      <button onclick="sendCmd({cal_ph7:true})">Calibrate @ pH 7.00</button>
-      <button onclick="sendCmd({cal_ph4:true})">Calibrate @ pH 4.00</button>
-    </div>
-    <div class="panel ctl">
-      <label>KH math calibration (monthly)</label>
-      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
-        After a test finishes, test the same water with your manual kit (Salifert/Hanna). Enter its dKH result and the pH this unit read (shown below) into the two fields, then save.
-      </div>
-      <label for="inKhCalRef">Manual kit result (dKH)</label>
-      <input id="inKhCalRef" type="number" step="0.01" min="3" max="15" placeholder="e.g. 8.20">
-      <label for="inPhCalRef" style="margin-top:8px">This unit's pH (from last test)</label>
-      <input id="inPhCalRef" type="number" step="0.001" min="7" max="9" placeholder="e.g. 8.160">
-      <div style="font-size:.7rem;color:var(--slate);margin-top:2px">Last test's raw reading: <b id="mEqPH">—</b> (auto-fills above)</div>
-      <button onclick="sendCmd({kh_cal_ref:+inKhCalRef.value, ph_cal_ref:+inPhCalRef.value})">Save KH calibration</button>
-      <div style="font-size:.72rem;color:var(--slate);margin-top:8px">
-        Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>
-      </div>
-    </div>
-    <div class="panel ctl">
-      <label>WiFi network</label>
-      <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Switching WiFi networks (e.g. new router)? This restarts the device into setup mode -- connect a phone to the "KH-Reactor-Setup" WiFi it broadcasts to enter new details.</div>
-      <button class="warn" onclick="if(confirm('This disconnects the device from WiFi immediately. Continue?')) sendCmd({wifi_reset:true})">Reset WiFi settings</button>
-    </div>
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
-
-<script>
-/* ================= CONFIG ================= */
-const GSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyqYwYic89e4nrUz1bdZUqoK_-aGEYIEzPfJ_rUi2oXqFByap08LJM2e3OV52Mz7j0u/exec";
-const DEVICE = "KH-01";
-const KH_MIN = 6, KH_MAX = 12;          // burette scale
-/* ========================================== */
-
-let chart;
-
-function toast(msg){
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.style.display = 'block';
-  setTimeout(()=>t.style.display='none', 2500);
-}
-
-async function sendCmd(obj){
-  try{
-    // Switched from fetch() to JSONP (same technique as history load) --
-    // on this device, fetch() calls to the Apps Script domain weren't
-    // reaching the server at all (no matching Execution ever appeared),
-    // while <script>-tag requests (JSONP) reliably do.
-    const params = new URLSearchParams(Object.assign({action:'setcmd', device:DEVICE, _:Date.now()}, obj));
-    await jsonpRequest(GSCRIPT_URL + '?' + params.toString());
-    toast('Command queued — device picks it up within 30 s');
-  }catch(e){ toast('Send failed — check URL / connection'); }
-}
-
-// JSONP loader -- bypasses CORS entirely via a <script> tag instead of fetch,
-// since Apps Script's redirect doesn't reliably send CORS headers a fetch()
-// can read, but a script tag has no such restriction.
-let jsonpCounter = 0;
-function jsonpRequest(url){
-  return new Promise((resolve, reject) => {
-    const cbName = 'khCb_' + (jsonpCounter++);
-    const script = document.createElement('script');
-    const cleanup = () => { delete window[cbName]; script.remove(); };
-    window[cbName] = (data) => { cleanup(); resolve(data); };
-    script.onerror = () => { cleanup(); reject(new Error('JSONP load failed')); };
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    document.body.appendChild(script);
-    setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, 10000);
-  });
-}
-
-function pct(kh){ return Math.max(0, Math.min(100, (kh-KH_MIN)/(KH_MAX-KH_MIN)*100)); }
-
-function render(rows){
-  if(!rows.length) return;
-  const last = rows[rows.length-1];
-  const kh = Number(last.kh), tgt = Number(last.target);
-
-  document.getElementById('khNow').textContent = kh > 0 ? kh.toFixed(2) : '—';
-  document.getElementById('mTarget').textContent = tgt.toFixed(1);
-  document.getElementById('mDosed').textContent = Number(last.dosed24h).toFixed(0);
-  document.getElementById('mDose').textContent = Number(last.dose).toFixed(1);
-  document.getElementById('mStatus').textContent = last.status + (last.source==='manual' ? ' (manual dose)' : '');
-  document.getElementById('mPhV7').textContent = last.phV7 ? Number(last.phV7).toFixed(3) : '—';
-  document.getElementById('mPhV4').textContent = last.phV4 ? Number(last.phV4).toFixed(3) : '—';
-  document.getElementById('mKhCalRef').textContent = last.khCalRef ? Number(last.khCalRef).toFixed(2) : '—';
-  document.getElementById('mPhCalRef').textContent = last.phCalRef ? Number(last.phCalRef).toFixed(3) : '—';
-  document.getElementById('mEqPH').textContent = last.eqPH ? Number(last.eqPH).toFixed(3) : '—';
-  if (last.eqPH && !document.getElementById('inPhCalRef').value) {
-    document.getElementById('inPhCalRef').value = Number(last.eqPH).toFixed(3);
+  if (data.action === "setcmd") {   // from dashboard
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName("cmd");
+    sh.getRange(2, 1, 1, 11).setValues([[
+      data.device || "KH-01",
+      data.test_now || false,
+      data.kh_target || "",
+      data.interval_min || "",
+      data.manual_dose_ml || "",
+      false,                                 // consumed flag
+      data.cal_ph7 || false,
+      data.cal_ph4 || false,
+      data.kh_cal_ref || "",
+      data.ph_cal_ref || "",
+      data.wifi_reset || false
+    ]]);
+    return ContentService.createTextOutput("ok");
   }
-  document.getElementById('lastSeen').textContent = new Date(last.t).toLocaleString();
-  document.getElementById('inTarget').value = tgt;
-
-  // burette fill + deadband
-  document.getElementById('fill').style.height = pct(kh) + '%';
-  const band = document.getElementById('band'), dead = 0.3;
-  band.style.bottom = pct(tgt-dead) + '%';
-  band.style.height = (pct(tgt+dead)-pct(tgt-dead)) + '%';
-
-  const st = document.getElementById('khState');
-  if(last.status && last.status.startsWith('fault')){ st.textContent='TITRATION FAULT — check reagent/probe'; st.className='kh-state fault'; }
-  else if(kh < tgt-dead){ st.textContent='BELOW TARGET — dosing active'; st.className='kh-state low'; }
-  else if(kh > tgt+dead){ st.textContent='ABOVE TARGET — dosing paused'; st.className='kh-state low'; }
-  else { st.textContent='IN BAND'; st.className='kh-state ok'; }
-
-  // chart
-  const labels = rows.map(r=>new Date(r.t).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
-  const khs   = rows.map(r=>Number(r.kh));
-  const tgts  = rows.map(r=>Number(r.target));
-  const doses = rows.map(r=>Number(r.dose));
-  const doseColors = rows.map(r=>(r.source==='manual') ? 'rgba(255,107,94,.7)' : 'rgba(245,185,95,.55)');
-
-  if(chart) chart.destroy();
-  chart = new Chart(document.getElementById('chart'), {
-    data:{ labels,
-      datasets:[
-        {type:'line', label:'KH (dKH)', data:khs, borderColor:'#3FD0C9', backgroundColor:'rgba(63,208,201,.12)',
-         tension:.3, fill:true, pointRadius:2, yAxisID:'y'},
-        {type:'line', label:'Target', data:tgts, borderColor:'#7A96A3', borderDash:[6,4], pointRadius:0, yAxisID:'y'},
-        {type:'bar', label:'Dose (mL)', data:doses, backgroundColor:doseColors, yAxisID:'y2'}
-      ]},
-    options:{ maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{color:'#7A96A3',font:{family:'IBM Plex Mono',size:10}}}},
-      scales:{
-        x:{ticks:{color:'#57707C',maxTicksLimit:8,font:{size:9}},grid:{color:'#12303E'}},
-        y:{min:6,max:12,title:{display:true,text:'dKH',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{color:'#12303E'}},
-        y2:{position:'right',min:0,title:{display:true,text:'mL',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}}
-      }}
-  });
+  return ContentService.createTextOutput("bad request");
 }
 
-async function load(){
-  if(GSCRIPT_URL.startsWith('PASTE')){ render(demoData()); return; }
-  try{
-    const data = await jsonpRequest(GSCRIPT_URL + '?action=history&n=200');
-    render(data);
-  }catch(e){ toast('Fetch failed — showing nothing new'); }
-}
+function doGet(e) {
+  Logger.log("doGet received: " + JSON.stringify(e.parameter));
+  const action = e.parameter.action;
 
-/* demo data so the dashboard is previewable before wiring up */
-function demoData(){
-  const rows=[]; let kh=7.6;
-  for(let i=48;i>=0;i--){
-    const drift=-0.06+Math.random()*0.04;
-    const dose = kh<8.2 ? Math.min((8.5-kh)*45,40) : 0;
-    kh += drift + dose*0.012;
-    rows.push({t:Date.now()-i*4*3600e3, kh:kh.toFixed(2), target:8.5,
-               dose:dose.toFixed(1), dosed24h:(dose*3).toFixed(0), status:'ok'});
-  }
-  return rows;
-}
-
-async function loadLiveStatus(){
-  if(GSCRIPT_URL.startsWith('PASTE')) return;
-  try{
-    const s = await jsonpRequest(GSCRIPT_URL + '?action=getstatus');
-    const panel = document.getElementById('liveStatusPanel');
-    if (!s.phase || s.phase === 'idle') { panel.style.display = 'none'; return; }
-    panel.style.display = 'block';
-    const phaseLabels = {
-      draining: 'Draining chamber', filling: 'Filling sample (120 mL)',
-      settling: 'Settling — probe stabilizing', reading: 'Reading final pH',
-      returning: 'Returning water to tank'
-    };
-    let label = phaseLabels[s.phase] || s.phase;
-    if (s.phase.startsWith('bubbling_')) {
-      const mins = s.phase.replace('bubbling_','').replace('min','');
-      label = 'Bubbling — ' + mins + ' min remaining';
+  // Dashboard sends commands via GET (query params) -- POST bodies get
+  // silently dropped when Apps Script's /exec redirect is followed by a
+  // browser, since browsers convert POST->GET and drop the body on redirect.
+  // GET avoids that problem entirely since the data travels in the URL.
+  if (action === "setcmd") {
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName("cmd");
+    sh.getRange(2, 1, 1, 11).setValues([[
+      e.parameter.device || "KH-01",
+      e.parameter.test_now === "true",
+      e.parameter.kh_target || "",
+      e.parameter.interval_min || "",
+      e.parameter.manual_dose_ml || "",
+      false,
+      e.parameter.cal_ph7 === "true",
+      e.parameter.cal_ph4 === "true",
+      e.parameter.kh_cal_ref || "",
+      e.parameter.ph_cal_ref || "",
+      e.parameter.wifi_reset === "true"
+    ]]);
+    if (e.parameter.callback) {
+      return ContentService
+        .createTextOutput(e.parameter.callback + '("ok")')
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
     }
-    document.getElementById('livePhase').textContent = label;
-    document.getElementById('livePH').textContent = (s.live_ph && s.live_ph > 0)
-      ? 'Live pH ~' + Number(s.live_ph).toFixed(2) + ' (indicative)'
-      : '';
-  }catch(e){ /* silent -- live status is best-effort */ }
-}
+    return ContentService.createTextOutput("ok");
+  }
 
-load();
-loadLiveStatus();
-setInterval(load, 60000);         // full chart refresh every minute
-setInterval(loadLiveStatus, 10000); // live status every 10s while a test runs
-</script>
-</body>
-</html>
+  // ESP32 pushes live phase/pH during a running test
+  if (action === "pushstatus") {
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName("status");
+    sh.getRange(2, 1, 1, 4).setValues([[
+      e.parameter.device || "KH-01",
+      e.parameter.phase || "",
+      e.parameter.ph || "",
+      new Date()
+    ]]);
+    return ContentService.createTextOutput("ok");
+  }
+
+  // Dashboard polls for live test status
+  if (action === "getstatus") {
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName("status");
+    const row = sh.getRange(2, 1, 1, 4).getValues()[0];
+    const out = { device: row[0], phase: row[1], live_ph: row[2], updated_at: row[3] };
+    if (e.parameter.callback) {
+      return ContentService
+        .createTextOutput(e.parameter.callback + "(" + JSON.stringify(out) + ")")
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return ContentService.createTextOutput(JSON.stringify(out))
+           .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ESP32 polls for pending commands
+  if (action === "getcmd") {
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName("cmd");
+    const row = sh.getRange(2, 1, 1, 11).getValues()[0];
+    if (row[0] === e.parameter.device && row[5] === false) {
+      sh.getRange(2, 6).setValue(true);      // mark consumed
+      const out = {};
+      if (row[1] === true) out.test_now = true;
+      if (row[2] !== "")   out.kh_target = Number(row[2]);
+      if (row[3] !== "")   out.interval_min = Number(row[3]);
+      if (row[4] !== "")   out.manual_dose_ml = Number(row[4]);
+      if (row[6] === true) out.cal_ph7 = true;
+      if (row[7] === true) out.cal_ph4 = true;
+      if (row[8] !== "")   out.kh_cal_ref = Number(row[8]);
+      if (row[9] !== "")   out.ph_cal_ref = Number(row[9]);
+      if (row[10] === true) out.wifi_reset = true;
+      return ContentService.createTextOutput(JSON.stringify(out))
+             .setMimeType(ContentService.MimeType.JSON);
+    }
+    return ContentService.createTextOutput("{}")
+           .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Dashboard fetches history (last N rows, default 200)
+  if (action === "history") {
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName("log");
+    const last = sh.getLastRow();
+    const n = Math.min(Number(e.parameter.n || 200), last - 1);
+    const rows = (n < 1) ? [] : sh.getRange(last - n + 1, 1, n, 15).getValues();
+    const out = rows.map(r => ({
+      t: r[0], device: r[1], kh: r[2], target: r[3],
+      dose: r[4], dosed24h: r[5], status: r[6], source: r[7] || "scheduled",
+      phV7: r[8] || "", phV4: r[9] || "", khCalRef: r[10] || "", phCalRef: r[11] || "",
+      eqPH: r[12] || "", tempC: r[13] || "", humidity: r[14] || ""
+    }));
+
+    // JSONP path: browsers can't CORS-read Apps Script's redirected JSON
+    // response reliably, but a <script> tag has no such restriction -- so
+    // when the dashboard asks with a callback param, wrap the data as a
+    // JS function call instead of plain JSON.
+    if (e.parameter.callback) {
+      return ContentService
+        .createTextOutput(e.parameter.callback + "(" + JSON.stringify(out) + ")")
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return ContentService.createTextOutput(JSON.stringify(out))
+           .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  return ContentService.createTextOutput("KH backend running");
+}
