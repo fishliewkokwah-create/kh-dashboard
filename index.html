@@ -64,13 +64,15 @@
 </header>
 
 <div style="padding:0 22px;max-width:1200px;margin:0 auto">
-  <div class="panel" id="liveStatusPanel" style="margin-top:14px;display:none">
-    <h2>Live Test Status</h2>
-    <div style="display:flex;align-items:center;gap:14px">
-      <div id="liveSpinner" style="width:14px;height:14px;border-radius:50%;background:var(--aqua);animation:pulse 1.2s infinite"></div>
+  <div class="panel" id="liveStatusPanel" style="margin-top:14px">
+    <h2>Live Monitor</h2>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div id="liveSpinner" style="width:14px;height:14px;border-radius:50%;background:var(--aqua);animation:pulse 1.2s infinite;flex-shrink:0"></div>
       <div>
-        <div id="livePhase" style="font-family:'Chakra Petch';font-size:1rem;color:var(--sand)">—</div>
-        <div id="livePH" style="font-size:.78rem;color:var(--slate)">—</div>
+        <div id="livePhase" style="font-family:'Chakra Petch';font-size:1rem;color:var(--sand)">Connecting...</div>
+        <div id="livePH" style="font-size:.78rem;color:var(--slate)"></div>
+        <div id="liveRoom" style="font-size:.78rem;color:var(--slate);margin-top:2px">—</div>
+        <div id="liveMode" style="font-size:.72rem;color:var(--aqua-dim);margin-top:4px">—</div>
       </div>
     </div>
   </div>
@@ -293,23 +295,35 @@ async function loadLiveStatus(){
   if(GSCRIPT_URL.startsWith('PASTE')) return;
   try{
     const s = await jsonpRequest(GSCRIPT_URL + '?action=getstatus');
-    const panel = document.getElementById('liveStatusPanel');
-    if (!s.phase || s.phase === 'idle') { panel.style.display = 'none'; return; }
-    panel.style.display = 'block';
     const phaseLabels = {
+      monitoring: 'Idle — monitoring', idle: 'Idle — monitoring',
       draining: 'Draining chamber', filling: 'Filling sample (120 mL)',
       settling: 'Settling — probe stabilizing', reading: 'Reading final pH',
       returning: 'Returning water to tank'
     };
-    let label = phaseLabels[s.phase] || s.phase;
-    if (s.phase.startsWith('bubbling_')) {
+    let label = phaseLabels[s.phase] || s.phase || 'Connecting...';
+    let testing = true;
+    if (s.phase && s.phase.startsWith('bubbling_')) {
       const mins = s.phase.replace('bubbling_','').replace('min','');
       label = 'Bubbling — ' + mins + ' min remaining';
+    } else if (s.phase === 'monitoring' || s.phase === 'idle') {
+      testing = false;
     }
     document.getElementById('livePhase').textContent = label;
-    document.getElementById('livePH').textContent = (s.live_ph && s.live_ph > 0)
+    document.getElementById('livePH').textContent = (testing && s.live_ph && s.live_ph > 0)
       ? 'Live pH ~' + Number(s.live_ph).toFixed(2) + ' (indicative)'
       : '';
+    document.getElementById('liveRoom').textContent = (s.temp_c && s.humidity)
+      ? 'Room: ' + Number(s.temp_c).toFixed(1) + '°C, ' + Number(s.humidity).toFixed(0) + '% RH'
+      : '';
+    const modeEl = document.getElementById('liveMode');
+    if (testing) {
+      modeEl.textContent = 'Test in progress — scheduled interval paused until this finishes';
+    } else if (s.interval_min) {
+      modeEl.textContent = 'Scheduled interval mode — every ' + s.interval_min + ' min · next test in ~' + (s.next_test_min || '0') + ' min';
+    } else {
+      modeEl.textContent = '';
+    }
   }catch(e){ /* silent -- live status is best-effort */ }
 }
 
