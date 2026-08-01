@@ -163,6 +163,9 @@
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">Controls bubble intensity during the test (L298N Channel 2, PWM). Gentler = less splash/foam.</div>
       <input id="inAirSpeed" type="number" step="5" min="10" max="100" value="70">
       <button onclick="sendCmd({air_speed_pct:+inAirSpeed.value})">Set air pump speed</button>
+      <div style="font-size:.72rem;color:var(--slate);margin-top:10px;margin-bottom:6px">Manual test (bypasses full test cycle):</div>
+      <button onclick="sendCmd({air_test_on:true})">Air pump ON (test)</button>
+      <button class="warn" onclick="sendCmd({air_test_off:true})">Air pump OFF</button>
     </div>
     <div class="panel ctl">
       <label>Pump calibration (Tank ↔ Chamber)</label>
