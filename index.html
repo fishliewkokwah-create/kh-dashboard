@@ -158,6 +158,30 @@
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Switching WiFi networks (e.g. new router)? This restarts the device into setup mode -- connect a phone to the "KH-Reactor-Setup" WiFi it broadcasts to enter new details.</div>
       <button class="warn" onclick="if(confirm('This disconnects the device from WiFi immediately. Continue?')) sendCmd({wifi_reset:true})">Reset WiFi settings</button>
     </div>
+    <div class="panel ctl">
+      <label for="inAirSpeed">Air pump speed (%)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">Controls bubble intensity during the test (L298N Channel 2, PWM). Gentler = less splash/foam.</div>
+      <input id="inAirSpeed" type="number" step="5" min="10" max="100" value="70">
+      <button onclick="sendCmd({air_speed_pct:+inAirSpeed.value})">Set air pump speed</button>
+    </div>
+    <div class="panel ctl">
+      <label>Pump calibration (Tank ↔ Chamber)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        Tap Run, catch the output in a graduated container for the full 10s run, then enter the measured mL and save.
+      </div>
+      <button onclick="sendCmd({cal_pump1_run:true})">Run Pump1 (10s)</button>
+      <input id="inPump1Ml" type="number" step="0.1" min="1" max="500" placeholder="measured mL" style="margin-top:8px">
+      <button onclick="sendCmd({pump1_cal_ml:+inPump1Ml.value})">Save Pump1 rate</button>
+    </div>
+    <div class="panel ctl">
+      <label>Pump calibration (Doser)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        Same idea for the baking soda doser pump.
+      </div>
+      <button onclick="sendCmd({cal_pumpd_run:true})">Run Doser (10s)</button>
+      <input id="inPumpDMl" type="number" step="0.1" min="1" max="500" placeholder="measured mL" style="margin-top:8px">
+      <button onclick="sendCmd({pumpd_cal_ml:+inPumpDMl.value})">Save Doser rate</button>
+    </div>
   </div>
 </div>
 
