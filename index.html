@@ -9,7 +9,7 @@
 <style>
   :root{
     --deep:#081A22; --panel:#0D2530; --line:#16394A;
-    --aqua:#3FD0C9; --aqua-dim:#1E7A76; --coral:#FF6B5E;
+    --aqua:#3B9FE8; --aqua-dim:#1F6699; --coral:#FF6B5E;
     --sand:#E8E3D5; --slate:#7A96A3; --amber:#F5B95F;
   }
   *{margin:0;padding:0;box-sizing:border-box}
@@ -28,7 +28,7 @@
   .burette-wrap{display:flex;gap:18px;align-items:stretch}
   .burette{position:relative;width:56px;height:300px;border:1px solid var(--line);border-radius:28px;overflow:hidden;background:#06141B;flex-shrink:0}
   .burette .fill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,var(--aqua),var(--aqua-dim));transition:height 1s ease}
-  .burette .band{position:absolute;left:0;right:0;background:rgba(63,208,201,.14);border-top:1px dashed var(--aqua-dim);border-bottom:1px dashed var(--aqua-dim)}
+  .burette .band{position:absolute;left:0;right:0;background:rgba(59,159,232,.14);border-top:1px dashed var(--aqua-dim);border-bottom:1px dashed var(--aqua-dim)}
   .burette .tick{position:absolute;right:4px;font-family:'IBM Plex Mono';font-size:.58rem;color:var(--slate)}
   .kh-read{display:flex;flex-direction:column;justify-content:center}
   .kh-val{font-family:'Chakra Petch';font-size:3.6rem;font-weight:700;line-height:1;color:var(--sand)}
@@ -116,6 +116,9 @@
       <label for="inTarget">KH target (dKH)</label>
       <input id="inTarget" type="number" step="0.1" min="6" max="12" value="8.5">
       <button onclick="sendCmd({kh_target:+inTarget.value})">Set target</button>
+      <label for="inChartRange" style="margin-top:10px">Chart scale (± dKH around target)</label>
+      <input id="inChartRange" type="number" step="0.5" min="1" max="10" value="5">
+      <button onclick="setChartRange()">Set chart scale</button>
     </div>
     <div class="panel ctl">
       <label for="inInterval">Test interval (min)</label>
@@ -194,7 +197,7 @@
 /* ================= CONFIG ================= */
 const GSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyqYwYic89e4nrUz1bdZUqoK_-aGEYIEzPfJ_rUi2oXqFByap08LJM2e3OV52Mz7j0u/exec";
 const DEVICE = "KH-01";
-const KH_MIN = 6, KH_MAX = 12;          // burette scale
+let CHART_RANGE = Number(localStorage.getItem('kh_chart_range')) || 5;   // scale swings +/- this much around target
 /* ========================================== */
 
 let chart;
@@ -203,6 +206,13 @@ function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.style.display = 'block';
   setTimeout(()=>t.style.display='none', 2500);
+}
+
+function setChartRange(){
+  CHART_RANGE = Number(document.getElementById('inChartRange').value) || 5;
+  localStorage.setItem('kh_chart_range', CHART_RANGE);
+  toast('Chart scale set to ±' + CHART_RANGE + ' dKH');
+  load();   // re-render with new scale
 }
 
 async function sendCmd(obj){
@@ -234,12 +244,14 @@ function jsonpRequest(url){
   });
 }
 
-function pct(kh){ return Math.max(0, Math.min(100, (kh-KH_MIN)/(KH_MAX-KH_MIN)*100)); }
+function pct(kh){ return Math.max(0, Math.min(100, (kh-scaleMin)/(scaleMax-scaleMin)*100)); }
+let scaleMin = 3.5, scaleMax = 13.5;   // updated each render() based on current target
 
 function render(rows){
   if(!rows.length) return;
   const last = rows[rows.length-1];
   const kh = Number(last.kh), tgt = Number(last.target);
+  scaleMin = tgt - CHART_RANGE; scaleMax = tgt + CHART_RANGE;
 
   document.getElementById('khNow').textContent = kh > 0 ? kh.toFixed(2) : '—';
   document.getElementById('mTarget').textContent = tgt.toFixed(1);
@@ -258,6 +270,7 @@ function render(rows){
   }
   document.getElementById('lastSeen').textContent = new Date(last.t).toLocaleString();
   document.getElementById('inTarget').value = tgt;
+  document.getElementById('inChartRange').value = CHART_RANGE;
 
   // burette fill + deadband
   document.getElementById('fill').style.height = pct(kh) + '%';
@@ -282,7 +295,7 @@ function render(rows){
   chart = new Chart(document.getElementById('chart'), {
     data:{ labels,
       datasets:[
-        {type:'line', label:'KH (dKH)', data:khs, borderColor:'#3FD0C9', backgroundColor:'rgba(63,208,201,.12)',
+        {type:'line', label:'KH (dKH)', data:khs, borderColor:'#3B9FE8', backgroundColor:'rgba(59,159,232,.12)',
          tension:.3, fill:true, pointRadius:2, yAxisID:'y'},
         {type:'line', label:'Target', data:tgts, borderColor:'#7A96A3', borderDash:[6,4], pointRadius:0, yAxisID:'y'},
         {type:'bar', label:'Dose (mL)', data:doses, backgroundColor:doseColors, yAxisID:'y2'}
@@ -291,7 +304,7 @@ function render(rows){
       plugins:{legend:{labels:{color:'#7A96A3',font:{family:'IBM Plex Mono',size:10}}}},
       scales:{
         x:{ticks:{color:'#57707C',maxTicksLimit:8,font:{size:9}},grid:{color:'#12303E'}},
-        y:{min:6,max:12,title:{display:true,text:'dKH',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{color:'#12303E'}},
+        y:{min:scaleMin,max:scaleMax,title:{display:true,text:'dKH',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{color:'#12303E'}},
         y2:{position:'right',min:0,title:{display:true,text:'mL',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}}
       }}
   });
