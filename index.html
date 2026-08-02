@@ -171,13 +171,22 @@
       <button class="warn" onclick="sendCmd({air_test_off:true})">Air pump OFF</button>
     </div>
     <div class="panel ctl">
-      <label>Pump calibration (Tank ↔ Chamber)</label>
+      <label>Pump1 bench test (Tank ↔ Chamber)</label>
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
-        Tap Run, catch the output in a graduated container for the full 10s run, then enter the measured mL and save.
+        Optional: run for 10s to visually check flow rate. Not used for test timing anymore -- see timer settings below.
       </div>
       <button onclick="sendCmd({cal_pump1_run:true})">Run Pump1 (10s)</button>
-      <input id="inPump1Ml" type="number" step="0.1" min="1" max="500" placeholder="measured mL" style="margin-top:8px">
-      <button onclick="sendCmd({pump1_cal_ml:+inPump1Ml.value})">Save Pump1 rate</button>
+    </div>
+    <div class="panel ctl">
+      <label>Fill / Return timing (Tank ↔ Chamber)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        Direct timer control (seconds), not mL-based -- simpler and the overflow switch already protects the fill step. Increase if the chamber isn't filling/draining fully within the current time.
+      </div>
+      <label for="inFillSec">Fill time (tank → chamber), sec</label>
+      <input id="inFillSec" type="number" step="0.5" min="1" max="60" value="5">
+      <label for="inReturnSec" style="margin-top:8px">Return time (chamber → tank), sec</label>
+      <input id="inReturnSec" type="number" step="0.5" min="1" max="60" value="9">
+      <button onclick="sendCmd({fill_seconds:+inFillSec.value, return_seconds:+inReturnSec.value})">Save timing</button>
     </div>
     <div class="panel ctl">
       <label>Pump calibration (Doser)</label>
