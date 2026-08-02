@@ -339,7 +339,8 @@ async function loadLiveStatus(){
       monitoring: 'Idle — monitoring', idle: 'Idle — monitoring',
       draining: 'Draining chamber', filling: 'Filling sample (120 mL)',
       settling: 'Settling — probe stabilizing', reading: 'Reading final pH',
-      returning: 'Returning water to tank'
+      returning: 'Returning water to tank',
+      fault_overflow: '⚠ OVERFLOW DETECTED — chamber drained for safety'
     };
     let label = phaseLabels[s.phase] || s.phase || 'Connecting...';
     let testing = true;
