@@ -298,7 +298,7 @@ function render(rows){
   const khs   = rows.map(r=>Number(r.kh));
   const tgts  = rows.map(r=>Number(r.target));
   const doses = rows.map(r=>Number(r.dose));
-  const doseColors = rows.map(r=>(r.source==='manual') ? 'rgba(255,107,94,.7)' : 'rgba(245,185,95,.55)');
+  const doseColors = rows.map(r=>(r.source==='manual') ? 'rgba(255,107,94,.7)' : 'rgba(76,187,110,.65)');
 
   if(chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), {
