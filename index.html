@@ -1,10 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="KH Reactor">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KH Reactor — Reef Alkalinity Control</title>
@@ -114,6 +110,12 @@
     <div class="chart-box"><canvas id="chart"></canvas></div>
   </div>
 
+  <!-- room conditions -->
+  <div class="panel chart-panel" style="grid-column:1 / -1">
+    <h2>Room Temp &amp; Humidity</h2>
+    <div class="chart-box" style="min-height:220px"><canvas id="roomChart"></canvas></div>
+  </div>
+
   <!-- controls -->
   <div class="controls">
     <div class="panel ctl">
@@ -214,6 +216,7 @@ let CHART_RANGE = Number(localStorage.getItem('kh_chart_range')) || 5;   // scal
 /* ========================================== */
 
 let chart;
+let roomChart;
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -321,6 +324,28 @@ function render(rows){
         y2:{position:'right',min:0,title:{display:true,text:'mL',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}}
       }}
   });
+
+  // room temp/humidity chart
+  const temps = rows.map(r=>r.tempC ? Number(r.tempC) : null);
+  const hums  = rows.map(r=>r.humidity ? Number(r.humidity) : null);
+
+  if(roomChart) roomChart.destroy();
+  roomChart = new Chart(document.getElementById('roomChart'), {
+    data:{ labels,
+      datasets:[
+        {type:'line', label:'Temp (°C)', data:temps, borderColor:'#F5B95F', backgroundColor:'rgba(245,185,95,.10)',
+         tension:.3, fill:true, pointRadius:2, spanGaps:true, yAxisID:'yTemp'},
+        {type:'line', label:'Humidity (%)', data:hums, borderColor:'#3B9FE8', backgroundColor:'rgba(59,159,232,.08)',
+         tension:.3, fill:true, pointRadius:2, spanGaps:true, yAxisID:'yHum'}
+      ]},
+    options:{ maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#7A96A3',font:{family:'IBM Plex Mono',size:10}}}},
+      scales:{
+        x:{ticks:{color:'#57707C',maxTicksLimit:8,font:{size:9}},grid:{color:'#12303E'}},
+        yTemp:{position:'left',title:{display:true,text:'°C',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{color:'#12303E'}},
+        yHum:{position:'right',min:0,max:100,title:{display:true,text:'% RH',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}}
+      }}
+  });
 }
 
 async function load(){
@@ -338,8 +363,12 @@ function demoData(){
     const drift=-0.06+Math.random()*0.04;
     const dose = kh<8.2 ? Math.min((8.5-kh)*45,40) : 0;
     kh += drift + dose*0.012;
+    const hourOfDay = new Date(Date.now()-i*4*3600e3).getHours();
+    const temp = 26.5 + Math.sin(hourOfDay/24*Math.PI*2) * 1.2;
+    const hum = 62 + Math.cos(hourOfDay/24*Math.PI*2) * 8;
     rows.push({t:Date.now()-i*4*3600e3, kh:kh.toFixed(2), target:8.5,
-               dose:dose.toFixed(1), dosed24h:(dose*3).toFixed(0), status:'ok'});
+               dose:dose.toFixed(1), dosed24h:(dose*3).toFixed(0), status:'ok',
+               tempC:temp.toFixed(1), humidity:hum.toFixed(0)});
   }
   return rows;
 }
