@@ -295,7 +295,15 @@ function render(rows){
   band.style.height = (pct(tgt+dead)-pct(tgt-dead)) + '%';
 
   const st = document.getElementById('khState');
-  if(last.status && last.status.startsWith('fault')){ st.textContent='TITRATION FAULT — check reagent/probe'; st.className='kh-state fault'; }
+  const faultMessages = {
+    fault_ph_range: 'FAULT — pH out of expected range. Check probe wiring/calibration.',
+    fault_kh_range: 'FAULT — Computed KH out of range. Check pH calibration.',
+    fault_overflow: 'FAULT — Overflow switch triggered. Chamber drained for safety.'
+  };
+  if(last.status && last.status.startsWith('fault')){
+    st.textContent = faultMessages[last.status] || ('FAULT — ' + last.status);
+    st.className='kh-state fault';
+  }
   else if(kh < tgt-dead){ st.textContent='BELOW TARGET — dosing active'; st.className='kh-state low'; }
   else if(kh > tgt+dead){ st.textContent='ABOVE TARGET — dosing paused'; st.className='kh-state low'; }
   else { st.textContent='IN BAND'; st.className='kh-state ok'; }
