@@ -333,9 +333,10 @@ function render(rows){
       }}
   });
 
-  // room temp/humidity chart
+  // room temp/humidity/CO2 chart
   const temps = rows.map(r=>r.tempC ? Number(r.tempC) : null);
   const hums  = rows.map(r=>r.humidity ? Number(r.humidity) : null);
+  const co2s  = rows.map(r=>r.co2 ? Number(r.co2) : null);
 
   if(roomChart) roomChart.destroy();
   roomChart = new Chart(document.getElementById('roomChart'), {
@@ -344,14 +345,17 @@ function render(rows){
         {type:'line', label:'Temp (°C)', data:temps, borderColor:'#F5B95F', backgroundColor:'rgba(245,185,95,.10)',
          tension:.3, fill:true, pointRadius:2, spanGaps:true, yAxisID:'yTemp'},
         {type:'line', label:'Humidity (%)', data:hums, borderColor:'#3B9FE8', backgroundColor:'rgba(59,159,232,.08)',
-         tension:.3, fill:true, pointRadius:2, spanGaps:true, yAxisID:'yHum'}
+         tension:.3, fill:true, pointRadius:2, spanGaps:true, yAxisID:'yHum'},
+        {type:'line', label:'CO₂ (ppm)', data:co2s, borderColor:'#8B6FD6', backgroundColor:'rgba(139,111,214,.08)',
+         tension:.3, fill:false, pointRadius:2, spanGaps:true, yAxisID:'yCO2', borderDash:[4,3]}
       ]},
     options:{ maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       plugins:{legend:{labels:{color:'#7A96A3',font:{family:'IBM Plex Mono',size:10}}}},
       scales:{
         x:{ticks:{color:'#57707C',maxTicksLimit:8,font:{size:9}},grid:{color:'#12303E'}},
         yTemp:{position:'left',title:{display:true,text:'°C',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{color:'#12303E'}},
-        yHum:{position:'right',min:0,max:100,title:{display:true,text:'% RH',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}}
+        yHum:{position:'right',min:0,max:100,title:{display:true,text:'% RH',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}},
+        yCO2:{position:'right',min:300,title:{display:false},ticks:{display:false},grid:{display:false}}
       }}
   });
 }
@@ -374,9 +378,10 @@ function demoData(){
     const hourOfDay = new Date(Date.now()-i*4*3600e3).getHours();
     const temp = 26.5 + Math.sin(hourOfDay/24*Math.PI*2) * 1.2;
     const hum = 62 + Math.cos(hourOfDay/24*Math.PI*2) * 8;
+    const co2 = 450 + Math.max(0, Math.sin((hourOfDay-2)/24*Math.PI*2)) * 350;
     rows.push({t:Date.now()-i*4*3600e3, kh:kh.toFixed(2), target:8.5,
                dose:dose.toFixed(1), dosed24h:(dose*3).toFixed(0), status:'ok',
-               tempC:temp.toFixed(1), humidity:hum.toFixed(0)});
+               tempC:temp.toFixed(1), humidity:hum.toFixed(0), co2:co2.toFixed(0)});
   }
   return rows;
 }
@@ -406,6 +411,7 @@ async function loadLiveStatus(){
       : '';
     document.getElementById('liveRoom').textContent = (s.temp_c && s.humidity)
       ? 'Room: ' + Number(s.temp_c).toFixed(1) + '°C, ' + Number(s.humidity).toFixed(0) + '% RH'
+        + (s.co2_ppm ? ', ' + Number(s.co2_ppm).toFixed(0) + ' ppm CO₂' : '')
       : '';
     const modeEl = document.getElementById('liveMode');
     if (testing) {
