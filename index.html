@@ -100,6 +100,7 @@
           pH cal (4.00) <b id="mPhV4">—</b> V<br>
           room <b id="mRoom">—</b>
         </div>
+        <button onclick="sendCmd({test_now:true})" style="margin-top:12px">Test now</button>
       </div>
     </div>
   </div>
@@ -107,6 +108,12 @@
   <!-- trend -->
   <div class="panel chart-panel">
     <h2>KH Trend &amp; Dosing</h2>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <button data-range="1" onclick="setChartFilter(1,this)" style="flex:1;padding:7px;font-size:.68rem">Day</button>
+      <button data-range="7" onclick="setChartFilter(7,this)" style="flex:1;padding:7px;font-size:.68rem">Week</button>
+      <button data-range="30" onclick="setChartFilter(30,this)" style="flex:1;padding:7px;font-size:.68rem">Month</button>
+      <button data-range="0" onclick="setChartFilter(0,this)" style="flex:1;padding:7px;font-size:.68rem">All</button>
+    </div>
     <div class="chart-box"><canvas id="chart"></canvas></div>
   </div>
 
@@ -137,9 +144,12 @@
       <button class="warn" onclick="sendCmd({manual_dose_ml:+inDose.value})">Dose now</button>
     </div>
     <div class="panel ctl">
-      <label>Run titration</label>
-      <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Forces an immediate KH test on next poll (&le;30 s).</div>
-      <button onclick="sendCmd({test_now:true})">Test now</button>
+      <label for="inManualKH">Log current alkalinity (dKH)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        Already tested with your manual kit? Log that reading directly here -- no test cycle runs, just records the value.
+      </div>
+      <input id="inManualKH" type="number" step="0.01" min="3" max="15" placeholder="e.g. 8.20">
+      <button onclick="sendCmd({manual_kh_reading:+inManualKH.value})">Log reading</button>
     </div>
     <div class="panel ctl">
       <label>pH probe calibration</label>
@@ -161,6 +171,17 @@
       <div style="font-size:.72rem;color:var(--slate);margin-top:8px">
         Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>
       </div>
+    </div>
+    <div class="panel ctl">
+      <label>Auto dosing</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        When OFF, scheduled tests still run and log KH normally, but the doser never actually runs -- useful during calibration or if you prefer manual dosing only. Manual "Dose now" still works either way.
+      </div>
+      <div style="font-family:'Chakra Petch';font-size:1.1rem;margin-bottom:8px">
+        Status: <b id="mAutoDosing" style="color:var(--aqua)">—</b>
+      </div>
+      <button onclick="sendCmd({auto_dosing:true})">Turn ON</button>
+      <button class="warn" onclick="sendCmd({auto_dosing:false})">Turn OFF</button>
     </div>
     <div class="panel ctl">
       <label>WiFi network</label>
@@ -195,6 +216,25 @@
       <button onclick="sendCmd({fill_seconds:+inFillSec.value, return_seconds:+inReturnSec.value})">Save timing</button>
     </div>
     <div class="panel ctl">
+      <label>System water volume (for dosing math)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        Enter each tank/sump separately (auto-summed below), OR fill in "Total (direct)" to override -- whichever you use last and save takes effect.
+      </div>
+      <label for="inTankA">Tank 1 (L)</label>
+      <input id="inTankA" type="number" step="1" min="0" placeholder="e.g. 200" oninput="updateTankSum()">
+      <label for="inTankB" style="margin-top:6px">Tank 2 (L)</label>
+      <input id="inTankB" type="number" step="1" min="0" placeholder="0" oninput="updateTankSum()">
+      <label for="inTankC" style="margin-top:6px">Tank 3 (L)</label>
+      <input id="inTankC" type="number" step="1" min="0" placeholder="0" oninput="updateTankSum()">
+      <label for="inTankSump" style="margin-top:6px">Sump (L)</label>
+      <input id="inTankSump" type="number" step="1" min="0" placeholder="e.g. 60" oninput="updateTankSum()">
+      <div style="font-size:.78rem;color:var(--aqua);margin-top:8px">Sum: <b id="tankSumDisplay">0</b> L</div>
+      <label for="inTankTotal" style="margin-top:10px">Or total (direct), L</label>
+      <input id="inTankTotal" type="number" step="1" min="1" placeholder="overrides sum above if filled">
+      <button onclick="saveTankVolume()">Save water volume</button>
+      <div style="font-size:.72rem;color:var(--slate);margin-top:8px">Currently saved: <b id="mTankVolume">—</b> L</div>
+    </div>
+    <div class="panel ctl">
       <label>Pump calibration (Doser)</label>
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
         Same idea for the baking soda doser pump.
@@ -213,6 +253,7 @@
 const GSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyUt6XKfz_GuZQQVfHPKzMaJtDq_-2_JuoyOm8LF6iZ_vSPx6Td2IBv6u4bLwoDJX0c/exec";
 const DEVICE = "KH-01";
 let CHART_RANGE = Number(localStorage.getItem('kh_chart_range')) || 5;   // scale swings +/- this much around target
+let CHART_FILTER_DAYS = Number(localStorage.getItem('kh_chart_filter')) || 0;   // 0 = All, else days back to show
 /* ========================================== */
 
 let chart;
@@ -224,11 +265,35 @@ function toast(msg){
   setTimeout(()=>t.style.display='none', 2500);
 }
 
+function setChartFilter(days, btn){
+  CHART_FILTER_DAYS = days;
+  localStorage.setItem('kh_chart_filter', days);
+  document.querySelectorAll('[data-range]').forEach(b => b.style.background = 'var(--aqua-dim)');
+  btn.style.background = 'var(--aqua)';
+  load();
+}
+
 function setChartRange(){
   CHART_RANGE = Number(document.getElementById('inChartRange').value) || 5;
   localStorage.setItem('kh_chart_range', CHART_RANGE);
   toast('Chart scale set to ±' + CHART_RANGE + ' dKH');
   load();   // re-render with new scale
+}
+
+function updateTankSum(){
+  const a = Number(document.getElementById('inTankA').value) || 0;
+  const b = Number(document.getElementById('inTankB').value) || 0;
+  const c = Number(document.getElementById('inTankC').value) || 0;
+  const sump = Number(document.getElementById('inTankSump').value) || 0;
+  document.getElementById('tankSumDisplay').textContent = (a+b+c+sump).toFixed(0);
+}
+
+function saveTankVolume(){
+  const directTotal = Number(document.getElementById('inTankTotal').value) || 0;
+  const sumTotal = Number(document.getElementById('tankSumDisplay').textContent) || 0;
+  const total = directTotal > 0 ? directTotal : sumTotal;
+  if (total <= 0) { toast('Enter tank sizes or a direct total first'); return; }
+  sendCmd({tank_volume_l: total});
 }
 
 async function sendCmd(obj){
@@ -269,6 +334,16 @@ function render(rows){
   const kh = Number(last.kh), tgt = Number(last.target);
   scaleMin = tgt - CHART_RANGE; scaleMax = tgt + CHART_RANGE;
 
+  // Chart date filter (Day/Week/Month/All) -- only affects the two charts,
+  // not the status panel above, which always reflects the latest reading
+  // regardless of what range is selected for viewing history.
+  let chartRows = rows;
+  if (CHART_FILTER_DAYS > 0) {
+    const cutoff = Date.now() - CHART_FILTER_DAYS * 86400000;
+    chartRows = rows.filter(r => new Date(r.t).getTime() >= cutoff);
+    if (chartRows.length < 2) chartRows = rows.slice(-10);   // fallback if filter leaves too little to plot
+  }
+
   document.getElementById('khNow').textContent = kh > 0 ? kh.toFixed(2) : '—';
   document.getElementById('mTarget').textContent = tgt.toFixed(1);
   document.getElementById('mDosed').textContent = Number(last.dosed24h).toFixed(0);
@@ -279,6 +354,11 @@ function render(rows){
   document.getElementById('mKhCalRef').textContent = last.khCalRef ? Number(last.khCalRef).toFixed(2) : '—';
   document.getElementById('mPhCalRef').textContent = last.phCalRef ? Number(last.phCalRef).toFixed(3) : '—';
   document.getElementById('mEqPH').textContent = last.eqPH ? Number(last.eqPH).toFixed(3) : '—';
+  document.getElementById('mTankVolume').textContent = last.tankL ? Number(last.tankL).toFixed(0) : '—';
+  const adEl = document.getElementById('mAutoDosing');
+  if (last.autoDosing === 'true' || last.autoDosing === true) { adEl.textContent = 'ON'; adEl.style.color = 'var(--aqua)'; }
+  else if (last.autoDosing === 'false' || last.autoDosing === false) { adEl.textContent = 'OFF'; adEl.style.color = 'var(--coral)'; }
+  else { adEl.textContent = '—'; adEl.style.color = 'var(--slate)'; }
   document.getElementById('mRoom').textContent = (last.tempC && last.humidity)
     ? Number(last.tempC).toFixed(1) + '°C, ' + Number(last.humidity).toFixed(0) + '% RH' : '—';
   if (last.eqPH && !document.getElementById('inPhCalRef').value) {
@@ -309,11 +389,11 @@ function render(rows){
   else { st.textContent='IN BAND'; st.className='kh-state ok'; }
 
   // chart
-  const labels = rows.map(r=>new Date(r.t).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
-  const khs   = rows.map(r=>Number(r.kh));
-  const tgts  = rows.map(r=>Number(r.target));
-  const doses = rows.map(r=>Number(r.dose));
-  const doseColors = rows.map(r=>(r.source==='manual') ? 'rgba(255,107,94,.7)' : 'rgba(76,187,110,.65)');
+  const labels = chartRows.map(r=>new Date(r.t).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+  const khs   = chartRows.map(r=>Number(r.kh));
+  const tgts  = chartRows.map(r=>Number(r.target));
+  const doses = chartRows.map(r=>Number(r.dose));
+  const doseColors = chartRows.map(r=>(r.source==='manual') ? 'rgba(245,158,11,.75)' : 'rgba(76,187,110,.65)');
 
   if(chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), {
@@ -334,9 +414,9 @@ function render(rows){
   });
 
   // room temp/humidity/CO2 chart
-  const temps = rows.map(r=>r.tempC ? Number(r.tempC) : null);
-  const hums  = rows.map(r=>r.humidity ? Number(r.humidity) : null);
-  const co2s  = rows.map(r=>r.co2 ? Number(r.co2) : null);
+  const temps = chartRows.map(r=>r.tempC ? Number(r.tempC) : null);
+  const hums  = chartRows.map(r=>r.humidity ? Number(r.humidity) : null);
+  const co2s  = chartRows.map(r=>r.co2 ? Number(r.co2) : null);
 
   if(roomChart) roomChart.destroy();
   roomChart = new Chart(document.getElementById('roomChart'), {
@@ -363,7 +443,7 @@ function render(rows){
 async function load(){
   if(GSCRIPT_URL.startsWith('PASTE')){ render(demoData()); return; }
   try{
-    const data = await jsonpRequest(GSCRIPT_URL + '?action=history&n=200');
+    const data = await jsonpRequest(GSCRIPT_URL + '?action=history&n=1000');
     render(data);
   }catch(e){ toast('Fetch failed — showing nothing new'); }
 }
@@ -423,6 +503,12 @@ async function loadLiveStatus(){
     }
   }catch(e){ /* silent -- live status is best-effort */ }
 }
+
+// Highlight the correct filter button on load based on saved preference
+document.querySelectorAll('[data-range]').forEach(b => {
+  if (Number(b.dataset.range) === CHART_FILTER_DAYS) b.style.background = 'var(--aqua)';
+  else b.style.background = 'var(--aqua-dim)';
+});
 
 load();
 loadLiveStatus();
