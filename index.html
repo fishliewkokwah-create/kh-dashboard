@@ -167,10 +167,24 @@
       <label for="inPhCalRef" style="margin-top:8px">This unit's pH (from last test)</label>
       <input id="inPhCalRef" type="number" step="0.001" min="7" max="9" placeholder="e.g. 8.160">
       <div style="font-size:.7rem;color:var(--slate);margin-top:2px">Last test's raw reading: <b id="mEqPH">—</b> (auto-fills above)</div>
-      <button onclick="sendCmd({kh_cal_ref:+inKhCalRef.value, ph_cal_ref:+inPhCalRef.value})">Save KH calibration</button>
+      <button onclick="saveKhCalibration()">Save KH calibration</button>
       <div style="font-size:.72rem;color:var(--slate);margin-top:8px">
-        Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>
+        Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>, <b id="mTempCalRef">—</b>°C
       </div>
+    </div>
+    <div class="panel ctl">
+      <label>Temperature compensation (advanced, optional)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        True alkalinity doesn't change with temperature, but the underlying pH/CO₂ chemistry does -- so readings can drift slightly if test temperature differs from your calibration temperature. This corrects for that empirically, using your own data rather than a generic textbook constant.
+        <br><br>
+        <b>How to derive your coefficient:</b> after calibrating above, wait for the tank to naturally reach a different temperature (e.g. day vs night, or heater cycling), then cross-check with your manual kit again at that new temperature. If the manual kit still shows the same true KH but this unit now reads differently, compute:
+        <br><code style="font-size:.68rem">coeff = (unit_KH_error / unit_KH_at_calibration) / (new_temp − cal_temp)</code>
+        <br>Start at 0 (disabled) -- most setups with stable tank temperature won't need this at all.
+      </div>
+      <label for="inTempCoeff">Coefficient (per °C)</label>
+      <input id="inTempCoeff" type="number" step="0.0001" placeholder="0 = disabled">
+      <button onclick="sendCmd({temp_coeff:+inTempCoeff.value})">Save coefficient</button>
+      <div style="font-size:.72rem;color:var(--slate);margin-top:8px">Currently saved: <b id="mTempCoeff">—</b> /°C</div>
     </div>
     <div class="panel ctl">
       <label>Auto dosing</label>
@@ -265,6 +279,13 @@ function toast(msg){
   setTimeout(()=>t.style.display='none', 2500);
 }
 
+function saveKhCalibration(){
+  const obj = {kh_cal_ref:+document.getElementById('inKhCalRef').value,
+               ph_cal_ref:+document.getElementById('inPhCalRef').value};
+  if (lastKnownTempC !== null) obj.temp_cal_ref = lastKnownTempC;   // capture temp at this same calibration moment
+  sendCmd(obj);
+}
+
 function setChartFilter(days, btn){
   CHART_FILTER_DAYS = days;
   localStorage.setItem('kh_chart_filter', days);
@@ -327,6 +348,7 @@ function jsonpRequest(url){
 
 function pct(kh){ return Math.max(0, Math.min(100, (kh-scaleMin)/(scaleMax-scaleMin)*100)); }
 let scaleMin = 3.5, scaleMax = 13.5;   // updated each render() based on current target
+let lastKnownTempC = null;   // used to auto-capture temp_cal_ref alongside KH calibration
 
 function render(rows){
   if(!rows.length) return;
@@ -354,6 +376,9 @@ function render(rows){
   document.getElementById('mKhCalRef').textContent = last.khCalRef ? Number(last.khCalRef).toFixed(2) : '—';
   document.getElementById('mPhCalRef').textContent = last.phCalRef ? Number(last.phCalRef).toFixed(3) : '—';
   document.getElementById('mEqPH').textContent = last.eqPH ? Number(last.eqPH).toFixed(3) : '—';
+  if (last.tempC) lastKnownTempC = Number(last.tempC);
+  document.getElementById('mTempCalRef').textContent = last.tempCalRef ? Number(last.tempCalRef).toFixed(1) : '—';
+  document.getElementById('mTempCoeff').textContent = (last.tempCoeff !== undefined && last.tempCoeff !== '') ? Number(last.tempCoeff).toFixed(5) : '0 (disabled)';
   document.getElementById('mTankVolume').textContent = last.tankL ? Number(last.tankL).toFixed(0) : '—';
   const adEl = document.getElementById('mAutoDosing');
   if (last.autoDosing === 'true' || last.autoDosing === true) { adEl.textContent = 'ON'; adEl.style.color = 'var(--aqua)'; }
