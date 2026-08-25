@@ -169,7 +169,7 @@
       <div style="font-size:.7rem;color:var(--slate);margin-top:2px">Last test's raw reading: <b id="mEqPH">—</b> (auto-fills above)</div>
       <button onclick="saveKhCalibration()">Save KH calibration</button>
       <div style="font-size:.72rem;color:var(--slate);margin-top:8px">
-        Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>, <b id="mTempCalRef">—</b>°C
+        Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>, <b id="mTempCalRef">—</b>°C, <b id="mCo2CalRef">—</b> ppm CO₂
       </div>
     </div>
     <div class="panel ctl">
@@ -283,6 +283,7 @@ function saveKhCalibration(){
   const obj = {kh_cal_ref:+document.getElementById('inKhCalRef').value,
                ph_cal_ref:+document.getElementById('inPhCalRef').value};
   if (lastKnownTempC !== null) obj.temp_cal_ref = lastKnownTempC;   // capture temp at this same calibration moment
+  if (lastKnownCO2 !== null) obj.co2_cal_ref = lastKnownCO2;         // capture CO2 at this same calibration moment -- critical, since CO2 varies a lot indoors
   sendCmd(obj);
 }
 
@@ -349,6 +350,7 @@ function jsonpRequest(url){
 function pct(kh){ return Math.max(0, Math.min(100, (kh-scaleMin)/(scaleMax-scaleMin)*100)); }
 let scaleMin = 3.5, scaleMax = 13.5;   // updated each render() based on current target
 let lastKnownTempC = null;   // used to auto-capture temp_cal_ref alongside KH calibration
+let lastKnownCO2 = null;     // used to auto-capture co2_cal_ref alongside KH calibration
 
 function render(rows){
   if(!rows.length) return;
@@ -377,7 +379,9 @@ function render(rows){
   document.getElementById('mPhCalRef').textContent = last.phCalRef ? Number(last.phCalRef).toFixed(3) : '—';
   document.getElementById('mEqPH').textContent = last.eqPH ? Number(last.eqPH).toFixed(3) : '—';
   if (last.tempC) lastKnownTempC = Number(last.tempC);
+  if (last.co2) lastKnownCO2 = Number(last.co2);
   document.getElementById('mTempCalRef').textContent = last.tempCalRef ? Number(last.tempCalRef).toFixed(1) : '—';
+  document.getElementById('mCo2CalRef').textContent = last.co2CalRef ? Number(last.co2CalRef).toFixed(0) : '420 (default -- recalibrate!)';
   document.getElementById('mTempCoeff').textContent = (last.tempCoeff !== undefined && last.tempCoeff !== '') ? Number(last.tempCoeff).toFixed(5) : '0 (disabled)';
   document.getElementById('mTankVolume').textContent = last.tankL ? Number(last.tankL).toFixed(0) : '—';
   const adEl = document.getElementById('mAutoDosing');
