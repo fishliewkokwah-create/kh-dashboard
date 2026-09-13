@@ -103,6 +103,23 @@
         <button onclick="sendCmd({test_now:true})" style="margin-top:12px">Test now</button>
       </div>
     </div>
+    <details style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
+      <summary style="cursor:pointer;font-family:'Chakra Petch';font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--slate)">Last test — calculation breakdown</summary>
+      <div style="font-family:'IBM Plex Mono';font-size:.72rem;color:var(--slate);line-height:1.9;margin-top:10px">
+        <div style="color:var(--sand);margin-bottom:4px">Measured this test:</div>
+        &nbsp;&nbsp;pH <b id="cbPh">—</b> · CO₂ <b id="cbCo2">—</b> ppm · <b id="cbTemp">—</b>°C<br>
+        <div style="color:var(--sand);margin:6px 0 4px">Calibration references:</div>
+        &nbsp;&nbsp;KH_REF <b id="cbKhRef">—</b> · pH_REF <b id="cbPhRef">—</b><br>
+        &nbsp;&nbsp;CO₂_REF <b id="cbCo2Ref">—</b> · TEMP_REF <b id="cbTempRef">—</b>°C<br>
+        <div style="color:var(--sand);margin:6px 0 4px">Multipliers applied:</div>
+        &nbsp;&nbsp;CO₂ term ×<b id="cbCo2Term">—</b> <span id="cbCo2Pct" style="color:var(--amber)"></span><br>
+        &nbsp;&nbsp;pH term &nbsp;×<b id="cbPhTerm">—</b> <span id="cbPhPct" style="color:var(--amber)"></span><br>
+        &nbsp;&nbsp;Temp term ×<b id="cbTempTerm">—</b><br>
+        <div style="color:var(--aqua);margin-top:8px;padding-top:6px;border-top:1px solid var(--line)">
+          <b id="cbFormula">—</b>
+        </div>
+      </div>
+    </details>
   </div>
 
   <!-- trend -->
@@ -382,6 +399,30 @@ function render(rows){
   if (last.co2) lastKnownCO2 = Number(last.co2);
   document.getElementById('mTempCalRef').textContent = last.tempCalRef ? Number(last.tempCalRef).toFixed(1) : '—';
   document.getElementById('mCo2CalRef').textContent = last.co2CalRef ? Number(last.co2CalRef).toFixed(0) : '420 (default -- recalibrate!)';
+
+  // calculation breakdown panel
+  const fmt = (v, d) => (v !== undefined && v !== '' && v !== null) ? Number(v).toFixed(d) : '—';
+  document.getElementById('cbPh').textContent      = fmt(last.eqPH, 4);
+  document.getElementById('cbCo2').textContent     = fmt(last.co2, 0);
+  document.getElementById('cbTemp').textContent    = fmt(last.tempC, 2);
+  document.getElementById('cbKhRef').textContent   = fmt(last.khCalRef, 2);
+  document.getElementById('cbPhRef').textContent   = fmt(last.phCalRef, 4);
+  document.getElementById('cbCo2Ref').textContent  = fmt(last.co2CalRef, 0);
+  document.getElementById('cbTempRef').textContent = fmt(last.tempCalRef, 2);
+  document.getElementById('cbCo2Term').textContent = fmt(last.co2Term, 4);
+  document.getElementById('cbPhTerm').textContent  = fmt(last.phTerm, 4);
+  document.getElementById('cbTempTerm').textContent= fmt(last.tempTerm, 4);
+  // show each term's percentage effect, so it's obvious which one is distorting the result
+  const pctTxt = (v) => (v !== undefined && v !== '' && v !== null)
+    ? '(' + ((Number(v)-1)*100 >= 0 ? '+' : '') + ((Number(v)-1)*100).toFixed(1) + '%)' : '';
+  document.getElementById('cbCo2Pct').textContent = pctTxt(last.co2Term);
+  document.getElementById('cbPhPct').textContent  = pctTxt(last.phTerm);
+  if (last.khCalRef && last.co2Term && last.phTerm) {
+    document.getElementById('cbFormula').textContent =
+      `${fmt(last.khCalRef,2)} × ${fmt(last.co2Term,4)} × ${fmt(last.phTerm,4)} × ${fmt(last.tempTerm,4)} = ${fmt(last.kh,2)} dKH`;
+  } else {
+    document.getElementById('cbFormula').textContent = 'Run a test to see the breakdown';
+  }
   document.getElementById('mTempCoeff').textContent = (last.tempCoeff !== undefined && last.tempCoeff !== '') ? Number(last.tempCoeff).toFixed(5) : '0 (disabled)';
   document.getElementById('mTankVolume').textContent = last.tankL ? Number(last.tankL).toFixed(0) : '—';
   const adEl = document.getElementById('mAutoDosing');
