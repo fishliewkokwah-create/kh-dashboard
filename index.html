@@ -247,6 +247,16 @@
       <button onclick="sendCmd({fill_seconds:+inFillSec.value, return_seconds:+inReturnSec.value})">Save timing</button>
     </div>
     <div class="panel ctl">
+      <label for="inBubbleMin">Bubble time (air equilibration)</label>
+      <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
+        How long air is bubbled through the sample before the pH is read. If this is too short the sample keeps some of the tank's own CO₂, pH sits low, and KH reads low as a result. Raise it and compare against a manual kit test on the same water.
+      </div>
+      <label for="inBubbleMin">Minutes</label>
+      <input id="inBubbleMin" type="number" step="1" min="1" max="60" value="15">
+      <button onclick="sendCmd({bubble_minutes:+inBubbleMin.value})">Save bubble time</button>
+      <div style="font-size:.72rem;color:var(--slate);margin-top:8px">Last test used: <b id="mBubbleMin">—</b> min</div>
+    </div>
+    <div class="panel ctl">
       <label>System water volume (for dosing math)</label>
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5;margin-bottom:8px">
         Enter each tank/sump separately (auto-summed below), OR fill in "Total (direct)" to override -- whichever you use last and save takes effect.
@@ -425,6 +435,10 @@ function render(rows){
   }
   document.getElementById('mTempCoeff').textContent = (last.tempCoeff !== undefined && last.tempCoeff !== '') ? Number(last.tempCoeff).toFixed(5) : '0 (disabled)';
   document.getElementById('mTankVolume').textContent = last.tankL ? Number(last.tankL).toFixed(0) : '—';
+  if (last.bubbleMin) {
+    document.getElementById('mBubbleMin').textContent = Number(last.bubbleMin).toFixed(0);
+    document.getElementById('inBubbleMin').value = Number(last.bubbleMin).toFixed(0);
+  }
   const adEl = document.getElementById('mAutoDosing');
   if (last.autoDosing === 'true' || last.autoDosing === true) { adEl.textContent = 'ON'; adEl.style.color = 'var(--aqua)'; }
   else if (last.autoDosing === 'false' || last.autoDosing === false) { adEl.textContent = 'OFF'; adEl.style.color = 'var(--coral)'; }
