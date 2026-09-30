@@ -496,6 +496,16 @@ function render(rows){
   const tgts  = chartRows.map(r=>Number(r.target));
   const doses = chartRows.map(r=>Number(r.dose));
   const doseColors = chartRows.map(r=>(r.source==='manual') ? 'rgba(245,158,11,.75)' : 'rgba(76,187,110,.65)');
+  const tankPHs = chartRows.map(r=>r.tankPH ? Number(r.tankPH) : null);
+  // auto-scale pH axis to the data so small swings stay visible (0.05 pH resolution min)
+  const phVals = tankPHs.filter(v=>v!==null && v>0);
+  let phMin = 7.8, phMax = 8.6;
+  if(phVals.length){
+    const lo = Math.min(...phVals), hi = Math.max(...phVals);
+    const pad = Math.max(0.05, (hi-lo)*0.25);
+    phMin = Math.floor((lo-pad)*20)/20;
+    phMax = Math.ceil((hi+pad)*20)/20;
+  }
 
   if(chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), {
@@ -504,6 +514,8 @@ function render(rows){
         {type:'line', label:'KH (dKH)', data:khs, borderColor:'#3B9FE8', backgroundColor:'rgba(59,159,232,.12)',
          tension:.3, fill:true, pointRadius:2, yAxisID:'y'},
         {type:'line', label:'Target', data:tgts, borderColor:'#7A96A3', borderDash:[6,4], pointRadius:0, yAxisID:'y'},
+        {type:'line', label:'Tank pH', data:tankPHs, borderColor:'#F5B95F', borderDash:[3,3],
+         borderWidth:1.5, tension:.3, fill:false, pointRadius:2, spanGaps:true, yAxisID:'yPH'},
         {type:'bar', label:'Dose (mL)', data:doses, backgroundColor:doseColors, yAxisID:'y2'}
       ]},
     options:{ maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
@@ -511,7 +523,9 @@ function render(rows){
       scales:{
         x:{ticks:{color:'#57707C',maxTicksLimit:8,font:{size:9}},grid:{color:'#12303E'}},
         y:{min:scaleMin,max:scaleMax,title:{display:true,text:'dKH',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{color:'#12303E'}},
-        y2:{position:'right',min:0,title:{display:true,text:'mL',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}}
+        y2:{position:'right',min:0,title:{display:true,text:'mL',color:'#7A96A3'},ticks:{color:'#7A96A3'},grid:{display:false}},
+        yPH:{position:'right',min:phMin,max:phMax,title:{display:true,text:'pH',color:'#F5B95F'},
+             ticks:{color:'#F5B95F',font:{size:9}},grid:{display:false}}
       }}
   });
 
