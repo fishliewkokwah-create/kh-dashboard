@@ -141,6 +141,24 @@
       <button data-range="0" onclick="setChartFilter(0,this)" style="flex:1;padding:7px;font-size:.68rem">All</button>
     </div>
     <div class="chart-box"><canvas id="chart"></canvas></div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:8px;
+                font-size:.62rem;color:#57707C">
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="width:16px;height:10px;background:rgba(8,26,40,.72);
+                     border:1px solid #1F3F52;display:inline-block"></span>lights off
+      </span>
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="width:16px;height:10px;background:transparent;
+                     border:1px solid #1F3F52;display:inline-block"></span>lights on
+      </span>
+      <span style="display:flex;align-items:center;gap:5px;margin-left:auto">
+        on <input id="inLightsOn" type="number" min="0" max="23" step="1"
+                  style="width:46px;padding:3px;font-size:.62rem;text-align:center">
+        off <input id="inLightsOff" type="number" min="0" max="23" step="1"
+                   style="width:46px;padding:3px;font-size:.62rem;text-align:center">
+        <button onclick="setPhotoperiod()" style="padding:3px 9px;font-size:.62rem">set</button>
+      </span>
+    </div>
   </div>
 
   <!-- room conditions -->
@@ -304,6 +322,34 @@ const GSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyUt6XKfz_GuZQQVfHP
 const DEVICE = "KH-01";
 let CHART_RANGE = Number(localStorage.getItem('kh_chart_range')) || 5;   // scale swings +/- this much around target
 let CHART_FILTER_DAYS = Number(localStorage.getItem('kh_chart_filter')) || 0;   // 0 = All, else days back to show
+
+// Aquarium photoperiod, used to shade the KH chart. This is the TANK light
+// schedule, not sunrise/sunset -- photosynthesis is what drives the pH swing,
+// so the lights are what the shading needs to follow.
+let LIGHTS_ON_HOUR  = Number(localStorage.getItem('kh_lights_on'));
+let LIGHTS_OFF_HOUR = Number(localStorage.getItem('kh_lights_off'));
+if (!Number.isFinite(LIGHTS_ON_HOUR)  || LIGHTS_ON_HOUR  === 0 && localStorage.getItem('kh_lights_on')  === null) LIGHTS_ON_HOUR  = 8;
+if (!Number.isFinite(LIGHTS_OFF_HOUR) || LIGHTS_OFF_HOUR === 0 && localStorage.getItem('kh_lights_off') === null) LIGHTS_OFF_HOUR = 20;
+
+function isLightsOff(d) {
+  const h = d.getHours() + d.getMinutes() / 60;
+  return (LIGHTS_OFF_HOUR > LIGHTS_ON_HOUR)
+    ? (h < LIGHTS_ON_HOUR || h >= LIGHTS_OFF_HOUR)     // normal daytime photoperiod
+    : (h >= LIGHTS_OFF_HOUR && h < LIGHTS_ON_HOUR);    // reverse / night photoperiod
+}
+
+function setPhotoperiod() {
+  const on  = Number(document.getElementById('inLightsOn').value);
+  const off = Number(document.getElementById('inLightsOff').value);
+  if (!Number.isFinite(on) || !Number.isFinite(off) || on < 0 || on > 23 || off < 0 || off > 23 || on === off) {
+    toast('Enter two different hours, 0-23'); return;
+  }
+  LIGHTS_ON_HOUR = on; LIGHTS_OFF_HOUR = off;
+  localStorage.setItem('kh_lights_on', on);
+  localStorage.setItem('kh_lights_off', off);
+  toast('Photoperiod set: lights on ' + on + ':00, off ' + off + ':00');
+  render();
+}
 /* ========================================== */
 
 let chart;
@@ -469,6 +515,8 @@ function render(rows){
   document.getElementById('lastSeen').textContent = new Date(last.t).toLocaleString();
   document.getElementById('inTarget').value = tgt;
   document.getElementById('inChartRange').value = CHART_RANGE;
+  document.getElementById('inLightsOn').value  = LIGHTS_ON_HOUR;
+  document.getElementById('inLightsOff').value = LIGHTS_OFF_HOUR;
 
   // burette fill + deadband
   document.getElementById('fill').style.height = pct(kh) + '%';
@@ -507,8 +555,33 @@ function render(rows){
     phMax = Math.ceil((hi+pad)*20)/20;
   }
 
+  // Shades the lights-off hours behind the plot. Drawn in beforeDatasetsDraw
+  // so it sits UNDER the lines rather than washing them out. Each point owns
+  // the band running to the midpoint of its neighbours, so the edges land
+  // between samples instead of on them.
+  const nightShade = {
+    id: 'nightShade',
+    beforeDatasetsDraw(c) {
+      if (chartRows.length < 2) return;
+      const { ctx, chartArea: { top, bottom }, scales: { x } } = c;
+      ctx.save();
+      ctx.fillStyle = 'rgba(8,26,40,.72)';
+      for (let i = 0; i < chartRows.length; i++) {
+        if (!isLightsOff(new Date(chartRows[i].t))) continue;
+        const cur  = x.getPixelForValue(i);
+        const prev = i > 0 ? x.getPixelForValue(i - 1) : cur;
+        const next = i < chartRows.length - 1 ? x.getPixelForValue(i + 1) : cur;
+        const left  = i > 0 ? (prev + cur) / 2 : cur - (next - cur) / 2;
+        const right = i < chartRows.length - 1 ? (cur + next) / 2 : cur + (cur - prev) / 2;
+        ctx.fillRect(left, top, right - left, bottom - top);
+      }
+      ctx.restore();
+    }
+  };
+
   if(chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), {
+    plugins:[nightShade],
     data:{ labels,
       datasets:[
         {type:'line', label:'KH (dKH)', data:khs, borderColor:'#3B9FE8', backgroundColor:'rgba(59,159,232,.12)',
