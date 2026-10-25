@@ -158,6 +158,12 @@
                    style="width:46px;padding:3px;font-size:.62rem;text-align:center">
         <button onclick="setPhotoperiod()" style="padding:3px 9px;font-size:.62rem">set</button>
       </span>
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="width:16px;height:0;border-top:1px dashed #9A7B3C;display:inline-block"></span>pH ref
+        <input id="inPHTarget" type="number" min="6" max="9.5" step="0.05"
+               style="width:52px;padding:3px;font-size:.62rem;text-align:center">
+        <button onclick="setPHTarget()" style="padding:3px 9px;font-size:.62rem">set</button>
+      </span>
     </div>
   </div>
 
@@ -330,6 +336,21 @@ let LIGHTS_ON_HOUR  = Number(localStorage.getItem('kh_lights_on'));
 let LIGHTS_OFF_HOUR = Number(localStorage.getItem('kh_lights_off'));
 if (!Number.isFinite(LIGHTS_ON_HOUR)  || LIGHTS_ON_HOUR  === 0 && localStorage.getItem('kh_lights_on')  === null) LIGHTS_ON_HOUR  = 8;
 if (!Number.isFinite(LIGHTS_OFF_HOUR) || LIGHTS_OFF_HOUR === 0 && localStorage.getItem('kh_lights_off') === null) LIGHTS_OFF_HOUR = 20;
+
+// pH reference level for the trend chart. Drawn the same way as the KH target
+// line so the two read as one pair: solid data against a dashed reference.
+// It is a display reference only -- nothing doses on pH.
+let PH_TARGET = Number(localStorage.getItem('kh_ph_target'));
+if (!Number.isFinite(PH_TARGET) || PH_TARGET <= 0) PH_TARGET = 8.0;
+
+function setPHTarget() {
+  const v = Number(document.getElementById('inPHTarget').value);
+  if (!Number.isFinite(v) || v < 6 || v > 9.5) { toast('Enter a pH between 6 and 9.5'); return; }
+  PH_TARGET = v;
+  localStorage.setItem('kh_ph_target', v);
+  toast('pH reference set to ' + v.toFixed(2));
+  render();
+}
 
 function isLightsOff(d) {
   const h = d.getHours() + d.getMinutes() / 60;
@@ -517,6 +538,7 @@ function render(rows){
   document.getElementById('inChartRange').value = CHART_RANGE;
   document.getElementById('inLightsOn').value  = LIGHTS_ON_HOUR;
   document.getElementById('inLightsOff').value = LIGHTS_OFF_HOUR;
+  document.getElementById('inPHTarget').value  = PH_TARGET;
 
   // burette fill + deadband
   document.getElementById('fill').style.height = pct(kh) + '%';
@@ -549,10 +571,15 @@ function render(rows){
   const phVals = tankPHs.filter(v=>v!==null && v>0);
   let phMin = 7.8, phMax = 8.6;
   if(phVals.length){
-    const lo = Math.min(...phVals), hi = Math.max(...phVals);
+    // The reference level joins the data in the scaling, otherwise a target
+    // outside the measured range is clipped off-axis and silently invisible.
+    const lo = Math.min(...phVals, PH_TARGET), hi = Math.max(...phVals, PH_TARGET);
     const pad = Math.max(0.05, (hi-lo)*0.25);
     phMin = Math.floor((lo-pad)*20)/20;
     phMax = Math.ceil((hi+pad)*20)/20;
+  } else {
+    phMin = Math.min(phMin, PH_TARGET-0.2);
+    phMax = Math.max(phMax, PH_TARGET+0.2);
   }
 
   // Shades the lights-off hours behind the plot. Drawn in beforeDatasetsDraw
@@ -589,6 +616,8 @@ function render(rows){
         {type:'line', label:'Target', data:tgts, borderColor:'#7A96A3', borderDash:[6,4], pointRadius:0, yAxisID:'y'},
         {type:'line', label:'Tank pH', data:tankPHs, borderColor:'#F5B95F', borderDash:[3,3],
          borderWidth:1.5, tension:.3, fill:false, pointRadius:2, spanGaps:true, yAxisID:'yPH'},
+        {type:'line', label:'pH ref', data:labels.map(()=>PH_TARGET), borderColor:'#9A7B3C',
+         borderDash:[6,4], borderWidth:1, pointRadius:0, fill:false, yAxisID:'yPH'},
         {type:'bar', label:'Dose (mL)', data:doses, backgroundColor:doseColors, yAxisID:'y2'}
       ]},
     options:{ maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
