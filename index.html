@@ -215,8 +215,13 @@
       <label for="inKhCalRef">Manual kit result (dKH)</label>
       <input id="inKhCalRef" type="number" step="0.01" min="3" max="15" placeholder="e.g. 8.20">
       <label for="inPhCalRef" style="margin-top:8px">This unit's pH (from last test)</label>
-      <input id="inPhCalRef" type="number" step="0.001" min="7" max="9" placeholder="e.g. 8.160">
-      <div style="font-size:.7rem;color:var(--slate);margin-top:2px">Last test's raw reading: <b id="mEqPH">—</b> (auto-fills above)</div>
+      <input id="inPhCalRef" type="number" step="0.001" min="7" max="9" placeholder="e.g. 8.160"
+             oninput="phRefUserEdited=true">
+      <div style="font-size:.7rem;color:var(--slate);margin-top:2px">Last test's raw reading: <b id="mEqPH">—</b>
+        <button onclick="usePhFromLastTest()" style="padding:2px 7px;font-size:.6rem;margin-left:6px">use this</button></div>
+      <div id="phRefWarn" style="display:none;font-size:.7rem;color:var(--coral);margin-top:4px;line-height:1.4">
+        This pH is not from the last test. KH and pH must be a pair from one test, or every reading is rescaled.
+      </div>
       <button onclick="saveKhCalibration()">Save KH calibration</button>
       <div style="font-size:.72rem;color:var(--slate);margin-top:8px">
         Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>, <b id="mTempCalRef">—</b>°C, <b id="mCo2CalRef">—</b> ppm CO₂
@@ -382,9 +387,33 @@ function toast(msg){
   setTimeout(()=>t.style.display='none', 2500);
 }
 
+function usePhFromLastTest(){
+  if (lastEqPH === null) { toast('No test with an equilibrium pH yet'); return; }
+  document.getElementById('inPhCalRef').value = lastEqPH.toFixed(3);
+  phRefUserEdited = false;
+  document.getElementById('phRefWarn').style.display = 'none';
+  toast('pH reference set to this test: ' + lastEqPH.toFixed(3));
+}
+
 function saveKhCalibration(){
-  const obj = {kh_cal_ref:+document.getElementById('inKhCalRef').value,
-               ph_cal_ref:+document.getElementById('inPhCalRef').value};
+  const khv = +document.getElementById('inKhCalRef').value;
+  const phv = +document.getElementById('inPhCalRef').value;
+  if (!(khv >= 3 && khv <= 15)) { toast('Enter the kit result in dKH (3-15)'); return; }
+  if (!(phv >= 7 && phv <= 9))  { toast('pH reference must be between 7 and 9'); return; }
+  // Saving a kit result against an older test's pH rescales every future
+  // reading by the ratio of the two, with nothing on screen to show it.
+  // 9.0 saved against a 12.0-era pH reads 25% low. Make it impossible to do
+  // without being told exactly what it will cost.
+  if (lastEqPH !== null && Math.abs(phv - lastEqPH) > 0.005) {
+    const scale = Math.pow(10, lastEqPH - phv);
+    if (!confirm(
+      'The pH you entered (' + phv.toFixed(3) + ') is not from the last test (' +
+      lastEqPH.toFixed(3) + ').\n\n' +
+      'KH and pH must be a matched pair from ONE test. Saving this will scale ' +
+      'every future reading by x' + scale.toFixed(3) + '.\n\n' +
+      'Save anyway?')) return;
+  }
+  const obj = {kh_cal_ref:khv, ph_cal_ref:phv};
   if (lastKnownTempC !== null) obj.temp_cal_ref = lastKnownTempC;   // capture temp at this same calibration moment
   if (lastKnownCO2 !== null) obj.co2_cal_ref = lastKnownCO2;         // capture CO2 at this same calibration moment -- critical, since CO2 varies a lot indoors
   sendCmd(obj);
@@ -452,6 +481,15 @@ function jsonpRequest(url){
 
 function pct(kh){ return Math.max(0, Math.min(100, (kh-scaleMin)/(scaleMax-scaleMin)*100)); }
 let scaleMin = 3.5, scaleMax = 13.5;   // updated each render() based on current target
+// KH_REF and pH_REF are a matched PAIR taken from one test. The old code only
+// auto-filled the pH field when it was empty, so a value left over from an
+// earlier calibration survived forever while the hint below it showed the
+// current test -- saving a new kit result against that stale pH silently
+// rescaled every reading by the ratio of the two. These three track the pair.
+let lastEqPH = null;            // equilibrium pH of the most recent real test
+let lastEqSource = null;        // that test's timestamp, so a NEW test resets the field
+let phRefUserEdited = false;    // true once the user types, so we stop overwriting
+
 let lastKnownTempC = null;   // used to auto-capture temp_cal_ref alongside KH calibration
 let lastKnownCO2 = null;     // used to auto-capture co2_cal_ref alongside KH calibration
 
@@ -480,7 +518,11 @@ function render(rows){
   document.getElementById('mPhV4').textContent = last.phV4 ? Number(last.phV4).toFixed(3) : '—';
   document.getElementById('mKhCalRef').textContent = last.khCalRef ? Number(last.khCalRef).toFixed(2) : '—';
   document.getElementById('mPhCalRef').textContent = last.phCalRef ? Number(last.phCalRef).toFixed(3) : '—';
-  document.getElementById('mEqPH').textContent = last.eqPH ? Number(last.eqPH).toFixed(3) : '—';
+  // A "manual_reading" row has no eq_ph, so walk back to the last real test
+  // rather than letting such a row blank the reference the user needs.
+  const lastTest = [...rows].reverse().find(r => r.eqPH && Number(r.eqPH) > 0) || last;
+  document.getElementById('mEqPH').textContent =
+    lastTest.eqPH ? Number(lastTest.eqPH).toFixed(3) : '—';
 
   // tank pH bar (pre-bubble) -- scaled 7.4-8.6, the usable reef range
   const tph = last.tankPH ? Number(last.tankPH) : 0;
@@ -530,8 +572,23 @@ function render(rows){
   else { adEl.textContent = '—'; adEl.style.color = 'var(--slate)'; }
   document.getElementById('mRoom').textContent = (last.tempC && last.humidity)
     ? Number(last.tempC).toFixed(1) + '°C, ' + Number(last.humidity).toFixed(0) + '% RH' : '—';
-  if (last.eqPH && !document.getElementById('inPhCalRef').value) {
-    document.getElementById('inPhCalRef').value = Number(last.eqPH).toFixed(3);
+  if (lastTest.eqPH) {
+    const eq = Number(lastTest.eqPH);
+    const el = document.getElementById('inPhCalRef');
+    // A new test invalidates anything typed against the previous one, because
+    // the pair must come from a single test.
+    if (lastEqSource !== lastTest.t) {
+      lastEqSource = lastTest.t;
+      lastEqPH = eq;
+      phRefUserEdited = false;
+    }
+    lastEqPH = eq;
+    // Refresh unless the user is actually editing -- the poll must not fight
+    // their typing, but it must not leave a stale value sitting there either.
+    if (!phRefUserEdited && document.activeElement !== el) el.value = eq.toFixed(3);
+    const warn = document.getElementById('phRefWarn');
+    const off  = Math.abs((+el.value) - eq);
+    warn.style.display = (el.value && off > 0.005) ? 'block' : 'none';
   }
   document.getElementById('lastSeen').textContent = new Date(last.t).toLocaleString();
   document.getElementById('inTarget').value = tgt;
