@@ -204,11 +204,11 @@
     <div class="panel ctl">
       <label>pH probe calibration</label>
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Dip probe in buffer solution first, wait for it to settle, then tap the matching button. Takes ~30s, saved automatically.</div>
-      <button onclick="sendCmd({cal_ph7:true})">Calibrate @ pH 7.00</button>
-      <button onclick="sendCmd({cal_ph4:true})">Calibrate @ pH 4.00</button>
+      <button onclick="startProbeAction({cal_ph7:true}, 'Calibrating at pH 7.00')">Calibrate @ pH 7.00</button>
+      <button onclick="startProbeAction({cal_ph4:true}, 'Calibrating at pH 4.00')">Calibrate @ pH 4.00</button>
       <button onclick="testProbe()" style="margin-top:10px">Test probe reading</button>
       <div id="probeResult" style="font-size:.8rem;margin-top:8px;line-height:1.5;color:var(--slate)">
-        Leave the probe in a buffer and tap Test. The reading should match the buffer.
+        Results of a calibration or a test appear here.
       </div>
     </div>
     <div class="panel ctl">
@@ -226,6 +226,10 @@
       <div id="phRefWarn" style="display:none;font-size:.7rem;color:var(--coral);margin-top:4px;line-height:1.4">
         This pH is not from the last test. KH and pH must be a pair from one test, or every reading is rescaled.
       </div>
+      <label for="inCo2CalRef" style="margin-top:8px">CO₂ during that test (ppm)</label>
+      <input id="inCo2CalRef" type="number" step="1" min="300" max="2000" placeholder="e.g. 480"
+             oninput="co2RefUserEdited=true">
+      <div style="font-size:.7rem;color:var(--slate);margin-top:2px">Last test's CO₂: <b id="mLastCO2">—</b> ppm (auto-fills above)</div>
       <button onclick="saveKhCalibration()">Save KH calibration</button>
       <div style="font-size:.72rem;color:var(--slate);margin-top:8px">
         Currently saved: <b id="mKhCalRef">—</b> dKH @ pH <b id="mPhCalRef">—</b>, <b id="mTempCalRef">—</b>°C, <b id="mCo2CalRef">—</b> ppm CO₂
@@ -417,9 +421,14 @@ function saveKhCalibration(){
       'every future reading by x' + scale.toFixed(3) + '.\n\n' +
       'Save anyway?')) return;
   }
-  const obj = {kh_cal_ref:khv, ph_cal_ref:phv};
+  const co2v = +document.getElementById('inCo2CalRef').value;
+  if (!(co2v >= 300 && co2v <= 2000)) { toast('Enter the CO₂ of that test (300-2000 ppm)'); return; }
+  if (lastTestCO2 && Math.abs(co2v - lastTestCO2) > 15) {
+    if (!confirm('The CO₂ you entered (' + co2v.toFixed(0) + ' ppm) is not the last test\'s (' + lastTestCO2.toFixed(0) +
+                 ' ppm).\n\nSaving this will scale every future reading by x' + (lastTestCO2 / co2v).toFixed(3) + '.\n\nSave anyway?')) return;
+  }
+  const obj = {kh_cal_ref:khv, ph_cal_ref:phv, co2_cal_ref:co2v};
   if (lastKnownTempC !== null) obj.temp_cal_ref = lastKnownTempC;   // capture temp at this same calibration moment
-  if (lastKnownCO2 !== null) obj.co2_cal_ref = lastKnownCO2;         // capture CO2 at this same calibration moment -- critical, since CO2 varies a lot indoors
   sendCmd(obj);
 }
 
@@ -454,19 +463,77 @@ function saveTankVolume(){
   sendCmd({tank_volume_l: total});
 }
 
+// The device reports the settings it is actually using with every status push.
+// Each one is written under its input ("On device: 5.0 s") and copied into the
+// input unless the user is editing it, so the page shows the device's state and
+// not just whatever was typed last.
+const SETTING_FIELDS = {
+  inFillSec:   {key:'fill',  unit:' s'},
+  inReturnSec: {key:'ret',   unit:' s'},
+  inAirSpeed:  {key:'air',   unit:' %'},
+  inBubbleMin: {key:'bub',   unit:' min'},
+  inInterval:  {key:'int',   unit:' min'},
+  inTarget:    {key:'tgt',   unit:' dKH'},
+  inTankTotal: {key:'tank',  unit:' L'},
+  inTempCoeff: {key:'tcoef', unit:' /°C'},
+  inPumpDMl:   {key:'pd',    unit:' mL/s (doser rate)', noFill:true}
+};
+const settingDirty = {};
+function showDeviceSettings(str){
+  if (!str) return;
+  const cfg = {};
+  String(str).split(';').forEach(p => { const i = p.indexOf('='); if (i > 0) cfg[p.slice(0,i)] = p.slice(i+1); });
+  for (const id in SETTING_FIELDS) {
+    const f = SETTING_FIELDS[id], el = document.getElementById(id);
+    if (!el || cfg[f.key] === undefined) continue;
+    let hint = document.getElementById('hint_' + id);
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'hint_' + id;
+      hint.style.cssText = 'font-size:.7rem;color:var(--slate);margin-top:2px';
+      el.insertAdjacentElement('afterend', hint);
+      el.addEventListener('input', () => { settingDirty[id] = true; });
+    }
+    const val = Number(cfg[f.key]);
+    hint.innerHTML = 'On device: <b style="color:#E8F1F5">' + val + '</b>' + f.unit;
+    if (!f.noFill && !settingDirty[id] && document.activeElement !== el) el.value = val;
+  }
+  const ad = document.getElementById('mAutoDosing');
+  if (ad && cfg.auto !== undefined) {
+    ad.textContent = cfg.auto === '1' ? 'ON' : 'OFF';
+    ad.style.color = cfg.auto === '1' ? 'var(--aqua)' : 'var(--coral)';
+  }
+}
+
 // Probe check: asks the device to read the probe now and report the pH using
 // the stored calibration. Nothing is saved -- it only verifies a calibration.
 let probeSeqSeen = null;      // counter of the last result displayed
 let probeWaitingSince = 0;    // >0 while a requested check is outstanding
-function testProbe(){
+function startProbeAction(cmd, label){
   probeWaitingSince = Date.now();
-  document.getElementById('probeResult').innerHTML = 'Waiting for the device (up to ~45 s)…';
-  sendCmd({ph_test:true});
+  document.getElementById('probeResult').innerHTML = label + ' — waiting for the device (up to ~60 s)…';
+  sendCmd(cmd);
+}
+function testProbe(){ startProbeAction({ph_test:true}, 'Reading the probe'); }
+
+// Calibration voltages as last known, so a slope can be shown after either
+// point is recalibrated. Filled from the log in render(), then overwritten by
+// each fresh calibration result.
+let calV7 = null, calV4 = null;
+function slopeLine(){
+  if (!(calV7 > 0 && calV4 > 0)) return '';
+  const slope = (calV4 - calV7) / 3.0;             // volts per pH
+  const pct = slope / 0.1775 * 100;                // 59.16 mV/pH x module gain 3 = 0.1775 V/pH nominal
+  if (!(slope > 0.05)) return '<br><span style="color:var(--coral)">The 7.00 and 4.00 voltages are too close or reversed — check the buffers and redo both points.</span>';
+  let note = pct >= 95 ? 'good' : pct >= 85 ? 'usable, probe is ageing' : 'low — replace the probe';
+  const col = pct >= 85 ? 'var(--aqua)' : 'var(--coral)';
+  return '<br>Slope ' + slope.toFixed(3) + ' V/pH = <span style="color:' + col + '">' + pct.toFixed(0) + '% of nominal</span> (' + note + ')';
 }
 function showProbeResult(s){
   const el = document.getElementById('probeResult');
   if (!el) return;
   const ph = Number(s.probe_ph), v = Number(s.probe_v), seq = String(s.probe_seq);
+  const kind = Number(s.probe_seq) % 10;           // last digit: 0 = test, 7 / 4 = calibration at that buffer
   const isNew = probeSeqSeen !== null && seq !== probeSeqSeen;
   if (probeSeqSeen === null) probeSeqSeen = seq;
   if (probeWaitingSince && !isNew) {
@@ -478,6 +545,13 @@ function showProbeResult(s){
   }
   if (isNew) { probeSeqSeen = seq; probeWaitingSince = 0; }
   if (!(ph > 0)) return;        // no check done since the device booted
+  if (kind === 7 || kind === 4) {
+    if (kind === 7) calV7 = v; else calV4 = v;
+    el.innerHTML = '<span style="color:var(--aqua)">pH ' + kind.toFixed(2) + ' calibrated</span> — saved <b style="color:#E8F1F5;font-size:1rem">' +
+                   v.toFixed(3) + ' V</b>' + slopeLine() +
+                   '<br>Rinse the probe, then use Test to confirm it reads the buffer.';
+    return;
+  }
   // compare against whichever common buffer the reading is closest to
   const buffers = [4.00, 6.86, 7.00, 9.18, 10.01];
   const near = buffers.reduce((a,b)=> Math.abs(b-ph) < Math.abs(a-ph) ? b : a);
@@ -498,6 +572,7 @@ async function sendCmd(obj){
     // while <script>-tag requests (JSONP) reliably do.
     const params = new URLSearchParams(Object.assign({action:'setcmd', device:DEVICE, _:Date.now()}, obj));
     await jsonpRequest(GSCRIPT_URL + '?' + params.toString());
+    for (const k in settingDirty) settingDirty[k] = false;   // fields re-sync to the device, confirming the change
     toast('Command queued — device picks it up within 30 s');
   }catch(e){ toast('Send failed — check URL / connection'); }
 }
@@ -529,6 +604,8 @@ let scaleMin = 3.5, scaleMax = 13.5;   // updated each render() based on current
 let lastEqPH = null;            // equilibrium pH of the most recent real test
 let lastEqSource = null;        // that test's timestamp, so a NEW test resets the field
 let phRefUserEdited = false;    // true once the user types, so we stop overwriting
+let lastTestCO2 = null;         // CO2 of that same test -- the third member of the calibration set
+let co2RefUserEdited = false;
 
 let lastKnownTempC = null;   // used to auto-capture temp_cal_ref alongside KH calibration
 let lastKnownCO2 = null;     // used to auto-capture co2_cal_ref alongside KH calibration
@@ -555,6 +632,8 @@ function render(rows){
   document.getElementById('mDose').textContent = Number(last.dose).toFixed(1);
   document.getElementById('mStatus').textContent = last.status + (last.source==='manual' ? ' (manual dose)' : '');
   document.getElementById('mPhV7').textContent = last.phV7 ? Number(last.phV7).toFixed(3) : '—';
+  if (calV7 === null && last.phV7) calV7 = Number(last.phV7);
+  if (calV4 === null && last.phV4) calV4 = Number(last.phV4);
   document.getElementById('mPhV4').textContent = last.phV4 ? Number(last.phV4).toFixed(3) : '—';
   document.getElementById('mKhCalRef').textContent = last.khCalRef ? Number(last.khCalRef).toFixed(2) : '—';
   document.getElementById('mPhCalRef').textContent = last.phCalRef ? Number(last.phCalRef).toFixed(3) : '—';
@@ -621,7 +700,15 @@ function render(rows){
       lastEqSource = lastTest.t;
       lastEqPH = eq;
       phRefUserEdited = false;
+      co2RefUserEdited = false;
     }
+    // CO2 belongs to the same test as the pH: the formula divides by CO2_REF,
+    // so a reference from a different moment skews every result the same way
+    // a mismatched pH does.
+    lastTestCO2 = lastTest.co2 ? Number(lastTest.co2) : null;
+    document.getElementById('mLastCO2').textContent = lastTestCO2 ? lastTestCO2.toFixed(0) : '—';
+    const cEl = document.getElementById('inCo2CalRef');
+    if (lastTestCO2 && !co2RefUserEdited && document.activeElement !== cEl) cEl.value = lastTestCO2.toFixed(0);
     lastEqPH = eq;
     // Refresh unless the user is actually editing -- the poll must not fight
     // their typing, but it must not leave a stale value sitting there either.
@@ -786,6 +873,7 @@ async function loadLiveStatus(){
   try{
     const s = await jsonpRequest(GSCRIPT_URL + '?action=getstatus');
     showProbeResult(s);
+    showDeviceSettings(s.settings);
     const phaseLabels = {
       monitoring: 'Idle — monitoring', idle: 'Idle — monitoring',
       draining: 'Draining chamber', filling: 'Filling sample (120 mL)',
