@@ -206,6 +206,10 @@
       <div style="font-size:.75rem;color:var(--slate);line-height:1.5">Dip probe in buffer solution first, wait for it to settle, then tap the matching button. Takes ~30s, saved automatically.</div>
       <button onclick="sendCmd({cal_ph7:true})">Calibrate @ pH 7.00</button>
       <button onclick="sendCmd({cal_ph4:true})">Calibrate @ pH 4.00</button>
+      <button onclick="testProbe()" style="margin-top:10px">Test probe reading</button>
+      <div id="probeResult" style="font-size:.8rem;margin-top:8px;line-height:1.5;color:var(--slate)">
+        Leave the probe in a buffer and tap Test. The reading should match the buffer.
+      </div>
     </div>
     <div class="panel ctl">
       <label>KH math calibration (monthly)</label>
@@ -448,6 +452,42 @@ function saveTankVolume(){
   const total = directTotal > 0 ? directTotal : sumTotal;
   if (total <= 0) { toast('Enter tank sizes or a direct total first'); return; }
   sendCmd({tank_volume_l: total});
+}
+
+// Probe check: asks the device to read the probe now and report the pH using
+// the stored calibration. Nothing is saved -- it only verifies a calibration.
+let probeSeqSeen = null;      // counter of the last result displayed
+let probeWaitingSince = 0;    // >0 while a requested check is outstanding
+function testProbe(){
+  probeWaitingSince = Date.now();
+  document.getElementById('probeResult').innerHTML = 'Waiting for the device (up to ~45 s)…';
+  sendCmd({ph_test:true});
+}
+function showProbeResult(s){
+  const el = document.getElementById('probeResult');
+  if (!el) return;
+  const ph = Number(s.probe_ph), v = Number(s.probe_v), seq = String(s.probe_seq);
+  const isNew = probeSeqSeen !== null && seq !== probeSeqSeen;
+  if (probeSeqSeen === null) probeSeqSeen = seq;
+  if (probeWaitingSince && !isNew) {
+    if (Date.now() - probeWaitingSince > 90000) {
+      probeWaitingSince = 0;
+      el.innerHTML = 'No answer from the device. Check it is online and not in the middle of a test.';
+    }
+    return;                     // keep the "waiting" text until the new result lands
+  }
+  if (isNew) { probeSeqSeen = seq; probeWaitingSince = 0; }
+  if (!(ph > 0)) return;        // no check done since the device booted
+  // compare against whichever common buffer the reading is closest to
+  const buffers = [4.00, 6.86, 7.00, 9.18, 10.01];
+  const near = buffers.reduce((a,b)=> Math.abs(b-ph) < Math.abs(a-ph) ? b : a);
+  const off = ph - near;
+  let verdict = '';
+  if (Math.abs(off) <= 0.05)      verdict = '<span style="color:var(--aqua)">OK</span> vs ' + near.toFixed(2) + ' buffer (' + (off>=0?'+':'') + off.toFixed(3) + ')';
+  else if (Math.abs(off) <= 0.3)  verdict = '<span style="color:var(--coral)">off by ' + (off>=0?'+':'') + off.toFixed(3) + '</span> vs ' + near.toFixed(2) + ' buffer — recalibrate';
+  else                            verdict = 'not near a standard buffer value';
+  el.innerHTML = 'Probe reads <b style="color:#E8F1F5;font-size:1rem">pH ' + ph.toFixed(3) + '</b> (' +
+                 (v > 0 ? v.toFixed(3) + ' V' : '—') + ')<br>' + verdict;
 }
 
 async function sendCmd(obj){
@@ -745,6 +785,7 @@ async function loadLiveStatus(){
   if(GSCRIPT_URL.startsWith('PASTE')) return;
   try{
     const s = await jsonpRequest(GSCRIPT_URL + '?action=getstatus');
+    showProbeResult(s);
     const phaseLabels = {
       monitoring: 'Idle — monitoring', idle: 'Idle — monitoring',
       draining: 'Draining chamber', filling: 'Filling sample (120 mL)',
